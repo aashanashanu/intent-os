@@ -13,7 +13,7 @@ sysctl -w net.ipv4.ip_forward=1
 echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-intentos-nat.conf
 
 interface=$(ip -o -4 route show to default | awk '{print $5}' | head -n 1)
-cat > /etc/nftables.conf <<EOF
+cat > /etc/sysconfig/nftables.conf <<EOF
 flush ruleset
 table ip intentos_nat {
   chain postrouting {
