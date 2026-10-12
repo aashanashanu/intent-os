@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -35,19 +36,21 @@ public class PayPalAuthController {
     private final String environment;
     private final String redirectUri;
     private final String frontendUrl;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
 
     public PayPalAuthController(
             @Value("${paypal.login.client-id:${paypal.client-id:}}") String clientId,
             @Value("${paypal.login.client-secret:${paypal.client-secret:}}") String clientSecret,
             @Value("${paypal.environment:sandbox}") String environment,
             @Value("${paypal.login.redirect-uri:http://localhost:8080/api/auth/paypal/callback}") String redirectUri,
-            @Value("${intentos.frontend-url:http://localhost:5173}") String frontendUrl) {
+            @Value("${intentos.frontend-url:http://localhost:5173}") String frontendUrl,
+            RestClient.Builder restClientBuilder) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.environment = environment;
         this.redirectUri = redirectUri;
         this.frontendUrl = frontendUrl;
+        this.restClient = restClientBuilder.build();
     }
 
     @GetMapping("/session")
@@ -87,17 +90,40 @@ public class PayPalAuthController {
     }
 
     @GetMapping("/paypal/callback")
-    public ResponseEntity<Void> completeLogin(@RequestParam String code, @RequestParam String state, HttpServletRequest request) {
+    public ResponseEntity<Void> completeLogin(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            HttpServletRequest request) {
         HttpSession session = request.getSession(false);
         Object expectedState = session == null ? null : session.getAttribute(STATE_SESSION_ATTRIBUTE);
-        if (!(expectedState instanceof String expected) || !MessageDigest.isEqual(
+        if (state == null || !(expectedState instanceof String expected) || !MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8), state.getBytes(StandardCharsets.UTF_8))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PayPal login state is missing or invalid");
         }
 
-        JsonNode profile = fetchProfile(code);
+        if (error != null) {
+            session.removeAttribute(STATE_SESSION_ATTRIBUTE);
+            String errorCode = "access_denied".equals(error) ? "access_denied" : "login_failed";
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(UriComponentsBuilder.fromUriString(frontendUrl)
+                            .queryParam("paypalLoginError", errorCode)
+                            .build().toUri())
+                    .build();
+        }
+        if (code == null || code.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PayPal did not return an authorization code");
+        }
+
+        JsonNode profile;
+        try {
+            profile = fetchProfile(code);
+        } catch (RestClientException exception) {
+            return loginErrorRedirect("login_failed");
+        }
+        if (profile == null) return loginErrorRedirect("login_failed");
         String userId = profile.path("user_id").asText(profile.path("sub").asText());
-        if (userId.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "PayPal profile did not contain a user identifier");
+        if (userId.isBlank()) return loginErrorRedirect("login_failed");
 
         request.changeSessionId();
         session = request.getSession(true);
@@ -107,6 +133,14 @@ public class PayPalAuthController {
         session.setAttribute("paypalUserName", profile.path("name").asText("PayPal user"));
         session.setAttribute("paypalUserEmail", profile.path("email").asText(""));
         return ResponseEntity.status(HttpStatus.FOUND).location(java.net.URI.create(frontendUrl)).build();
+    }
+
+    private ResponseEntity<Void> loginErrorRedirect(String errorCode) {
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(UriComponentsBuilder.fromUriString(frontendUrl)
+                        .queryParam("paypalLoginError", errorCode)
+                        .build().toUri())
+                .build();
     }
 
     @PostMapping("/logout")

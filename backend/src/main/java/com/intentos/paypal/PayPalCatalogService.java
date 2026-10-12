@@ -23,11 +23,12 @@ public class PayPalCatalogService {
     public PayPalCatalogService(
             @Value("${paypal.client-id:}") String clientId,
             @Value("${paypal.client-secret:}") String clientSecret,
-            @Value("${paypal.environment:sandbox}") String environment) {
+            @Value("${paypal.environment:sandbox}") String environment,
+            RestClient.Builder clientBuilder) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.environment = environment;
-        this.client = RestClient.create();
+        this.client = clientBuilder.build();
     }
 
     public JsonNode listProducts(int page, int pageSize) {

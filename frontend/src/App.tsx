@@ -65,6 +65,7 @@ type CatalogProduct = {
 }
 
 function App() {
+  const loginError = new URLSearchParams(window.location.search).get('paypalLoginError')
   const [health, setHealth] = useState<'checking' | 'online' | 'offline'>('checking')
   const [auth, setAuth] = useState<AuthSession>({ authenticated: false, loginConfigured: false })
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null)
@@ -83,11 +84,19 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [repairing, setRepairing] = useState(false)
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
-  const [notice, setNotice] = useState('')
-  const [noticeKind, setNoticeKind] = useState<'success' | 'error'>('success')
+  const [notice, setNotice] = useState(() => loginError === 'access_denied'
+    ? 'PayPal sign-in was cancelled or not approved. Check the Sandbox buyer account and try again.'
+    : loginError
+      ? 'PayPal sign-in could not be completed. Check the Sandbox app configuration and try again.'
+      : '')
+  const [noticeKind, setNoticeKind] = useState<'success' | 'error'>(() => loginError ? 'error' : 'success')
 
   useEffect(() => {
     const controller = new AbortController()
+
+    if (loginError) {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`)
+    }
 
     fetch('/api/health', { signal: controller.signal })
       .then((response) => {
@@ -100,7 +109,7 @@ function App() {
       })
 
     return () => controller.abort()
-  }, [])
+  }, [loginError])
 
   useEffect(() => {
     const controller = new AbortController()

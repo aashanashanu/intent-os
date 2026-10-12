@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -38,6 +39,31 @@ class PayPalAuthApiTest {
         mockMvc.perform(get("/api/auth/paypal"))
                 .andExpect(status().isServiceUnavailable());
     }
+
+        @Test
+        void redirectsPayPalConsentDenialBackToUiAfterValidatingState() throws Exception {
+                MockHttpSession session = new MockHttpSession();
+                session.setAttribute("paypalLoginState", "expected-state");
+
+                mockMvc.perform(get("/api/auth/paypal/callback")
+                                                .session(session)
+                                                .param("error", "access_denied")
+                                                .param("state", "expected-state"))
+                                .andExpect(status().isFound())
+                                .andExpect(header().string("Location", "http://localhost:5173?paypalLoginError=access_denied"));
+        }
+
+        @Test
+        void rejectsPayPalConsentDenialWithInvalidState() throws Exception {
+                MockHttpSession session = new MockHttpSession();
+                session.setAttribute("paypalLoginState", "expected-state");
+
+                mockMvc.perform(get("/api/auth/paypal/callback")
+                                                .session(session)
+                                                .param("error", "access_denied")
+                                                .param("state", "wrong-state"))
+                                .andExpect(status().isBadRequest());
+        }
 
     @Test
     void contractIsOwnedByAuthenticatedPayPalUser() throws Exception {
