@@ -39,7 +39,7 @@ CloudFront can take several minutes to deploy. The first CI run waits for EC2 to
 
 ## Configure CI/CD
 
-In repository **Settings → Secrets and variables → Actions**, set these repository variables from Terraform outputs:
+The workflow defaults to the current deployment's Terraform outputs, so these repository variables are optional. Set them only to override the deployed resources or when provisioning a new environment:
 
 - `AWS_REGION`: Terraform region; optional when using the default `us-east-1` region. Set it explicitly if Terraform was provisioned in another region.
 - `AWS_DEPLOY_ROLE_ARN`: optional override for the `github_deploy_role_arn` output. The workflow defaults to this repository's deployed role.
@@ -53,7 +53,7 @@ In repository **Settings → Secrets and variables → Actions**, set these repo
 - `INTENTOS_ELASTIC_ENABLED`: `false` unless Elastic is configured.
 - `INTENTOS_ELASTIC_URL`: optional Elasticsearch HTTPS endpoint.
 
-Add these GitHub repository secrets:
+Only the PayPal credentials below are required GitHub secrets for the default deployment. Add the Elastic key only when Elastic is enabled:
 
 - `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`: PayPal REST app credentials.
 - `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET`: optional separate Login credentials; if unset, REST credentials are used.
