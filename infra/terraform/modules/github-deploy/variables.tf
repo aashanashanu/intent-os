@@ -1,5 +1,5 @@
 variable "project_name" { type = string }
-variable "github_repository" { type = string }
+variable "github_oidc_subject" { type = string }
 variable "frontend_bucket_arn" { type = string }
 variable "artifact_bucket_arn" { type = string }
 variable "distribution_arn" { type = string }

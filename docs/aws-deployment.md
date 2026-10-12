@@ -15,7 +15,7 @@ cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Set `github_repository` to the exact GitHub `owner/name`, then run:
+Set `github_oidc_subject` to the exact subject format GitHub sends for this repository. This repository uses the immutable owner/repository IDs shown in `terraform.tfvars.example`; the branch must match the workflow trust (`main`). Then run:
 
 ```sh
 terraform init

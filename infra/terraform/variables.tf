@@ -16,7 +16,7 @@ variable "ec2_instance_type" {
   default     = "t3.micro"
 }
 
-variable "github_repository" {
-  description = "GitHub repository allowed to deploy, in owner/name form."
+variable "github_oidc_subject" {
+  description = "Exact GitHub OIDC subject permitted to assume the deployment role."
   type        = string
 }

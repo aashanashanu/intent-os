@@ -37,7 +37,7 @@ module "github_deploy" {
   source = "./modules/github-deploy"
 
   project_name          = var.project_name
-  github_repository     = var.github_repository
+  github_oidc_subject   = var.github_oidc_subject
   frontend_bucket_arn   = module.storage.frontend_bucket_arn
   artifact_bucket_arn   = module.storage.artifact_bucket_arn
   distribution_arn      = module.cdn.distribution_arn
