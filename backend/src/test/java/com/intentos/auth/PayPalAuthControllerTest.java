@@ -28,7 +28,7 @@ class PayPalAuthControllerTest {
                         "grant_type=authorization_code&code=authorization-code&redirect_uri=https%3A%2F%2Fapp.example%2Fapi%2Fauth%2Fpaypal%2Fcallback"))
                 .andRespond(withSuccess("{\"access_token\":\"profile-token\"}", MediaType.APPLICATION_JSON));
         server.expect(requestTo(
-                        "https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo/?schema=paypalv1.1"))
+                        "https://api-m.sandbox.paypal.com/v1/identity/oauth2/userinfo?schema=paypalv1.1"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer profile-token"))
                 .andRespond(withSuccess(

@@ -202,7 +202,7 @@ public class PayPalAuthController {
         }
         try {
             return restClient.get()
-                    .uri(apiHost() + "/v1/identity/openidconnect/userinfo/?schema=paypalv1.1")
+                    .uri(apiHost() + "/v1/identity/oauth2/userinfo?schema=paypalv1.1")
                     .headers(headers -> headers.setBearerAuth(token.path("access_token").asText()))
                     .retrieve().body(JsonNode.class);
         } catch (RestClientResponseException exception) {
