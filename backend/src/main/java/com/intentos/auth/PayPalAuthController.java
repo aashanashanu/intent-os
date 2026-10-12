@@ -166,7 +166,7 @@ public class PayPalAuthController {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "PayPal did not return a login access token");
         }
         return restClient.get()
-                .uri(apiHost() + "/v1/identity/openidconnect/userinfo?schema=paypalv1.1")
+            .uri(apiHost() + "/v1/identity/openidconnect/userinfo/?schema=paypalv1.1")
                 .headers(headers -> headers.setBearerAuth(token.path("access_token").asText()))
                 .retrieve().body(JsonNode.class);
     }
