@@ -35,7 +35,7 @@ jobs:
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::041794612561:role/intent-os-github-deploy' }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
           role-session-name: IntentOSGitHubDeploy
 
