@@ -71,7 +71,7 @@ class PayPalAuthControllerTest {
         var response = controller.completeLogin("authorization-code", "valid-state", null, request);
 
         assertEquals(302, response.getStatusCode().value());
-        assertEquals("https://app.example?paypalLoginError=login_failed",
+        assertEquals("https://app.example?paypalLoginError=login_failed&paypalLoginStage=token&paypalLoginStatus=401&paypalLoginDetail=unknown",
                 response.getHeaders().getLocation().toString());
         server.verify();
     }

@@ -66,6 +66,10 @@ type CatalogProduct = {
 
 function App() {
   const loginError = new URLSearchParams(window.location.search).get('paypalLoginError')
+  const loginParams = new URLSearchParams(window.location.search)
+  const loginDiagnostic = loginParams.get('paypalLoginStage')
+    ? ` (${loginParams.get('paypalLoginStage')} step, HTTP ${loginParams.get('paypalLoginStatus')}, ${loginParams.get('paypalLoginDetail')})`
+    : ''
   const [health, setHealth] = useState<'checking' | 'online' | 'offline'>('checking')
   const [auth, setAuth] = useState<AuthSession>({ authenticated: false, loginConfigured: false })
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null)
@@ -87,7 +91,7 @@ function App() {
   const [notice, setNotice] = useState(() => loginError === 'access_denied'
     ? 'PayPal sign-in was cancelled or not approved. Check the Sandbox buyer account and try again.'
     : loginError
-      ? 'PayPal sign-in could not be completed. Check the Sandbox app configuration and try again.'
+      ? `PayPal sign-in could not be completed. Check the Sandbox app configuration and try again.${loginDiagnostic}`
       : '')
   const [noticeKind, setNoticeKind] = useState<'success' | 'error'>(() => loginError ? 'error' : 'success')
 

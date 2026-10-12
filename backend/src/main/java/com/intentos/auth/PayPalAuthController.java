@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -118,12 +119,14 @@ public class PayPalAuthController {
         JsonNode profile;
         try {
             profile = fetchProfile(code);
+        } catch (PayPalStageException exception) {
+            return loginErrorRedirect("login_failed", exception.stage, exception.status, exception.detail);
         } catch (RestClientException exception) {
-            return loginErrorRedirect("login_failed");
+            return loginErrorRedirect("login_failed", "network", 0, "unreachable");
         }
-        if (profile == null) return loginErrorRedirect("login_failed");
+        if (profile == null) return loginErrorRedirect("login_failed", "profile", 0, "empty_response");
         String userId = profile.path("user_id").asText(profile.path("sub").asText());
-        if (userId.isBlank()) return loginErrorRedirect("login_failed");
+        if (userId.isBlank()) return loginErrorRedirect("login_failed", "profile", 0, "missing_user_id");
 
         request.changeSessionId();
         session = request.getSession(true);
@@ -135,12 +138,39 @@ public class PayPalAuthController {
         return ResponseEntity.status(HttpStatus.FOUND).location(java.net.URI.create(frontendUrl)).build();
     }
 
-    private ResponseEntity<Void> loginErrorRedirect(String errorCode) {
+    private ResponseEntity<Void> loginErrorRedirect(String errorCode, String stage, int status, String detail) {
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(UriComponentsBuilder.fromUriString(frontendUrl)
                         .queryParam("paypalLoginError", errorCode)
+                        .queryParam("paypalLoginStage", stage)
+                        .queryParam("paypalLoginStatus", status)
+                        .queryParam("paypalLoginDetail", detail)
                         .build().toUri())
                 .build();
+    }
+
+    private static final class PayPalStageException extends RuntimeException {
+        private final String stage;
+        private final int status;
+        private final String detail;
+
+        PayPalStageException(String stage, int status, String detail) {
+            super(stage + " failed with HTTP " + status, null, false, false);
+            this.stage = stage;
+            this.status = status;
+            this.detail = detail;
+        }
+    }
+
+    // Forwards only PayPal's short error identifier, never the response body or tokens.
+    private static String errorIdentifier(RestClientResponseException exception) {
+        try {
+            JsonNode body = new com.fasterxml.jackson.databind.ObjectMapper().readTree(exception.getResponseBodyAsString());
+            String safe = body.path("error").asText(body.path("name").asText("unknown")).replaceAll("[^A-Za-z0-9_.-]", "");
+            return safe.isEmpty() ? "unknown" : safe.substring(0, Math.min(64, safe.length()));
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     @PostMapping("/logout")
@@ -156,19 +186,28 @@ public class PayPalAuthController {
         form.add("grant_type", "authorization_code");
         form.add("code", code);
         form.add("redirect_uri", redirectUri);
-        JsonNode token = restClient.post()
-                .uri(apiHost() + "/v1/oauth2/token")
-                .headers(headers -> headers.setBasicAuth(clientId, clientSecret))
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(form)
-                .retrieve().body(JsonNode.class);
-        if (token == null || token.path("access_token").asText().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "PayPal did not return a login access token");
+        JsonNode token;
+        try {
+            token = restClient.post()
+                    .uri(apiHost() + "/v1/oauth2/token")
+                    .headers(headers -> headers.setBasicAuth(clientId, clientSecret))
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve().body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            throw new PayPalStageException("token", exception.getStatusCode().value(), errorIdentifier(exception));
         }
-        return restClient.get()
-            .uri(apiHost() + "/v1/identity/openidconnect/userinfo/?schema=paypalv1.1")
-                .headers(headers -> headers.setBearerAuth(token.path("access_token").asText()))
-                .retrieve().body(JsonNode.class);
+        if (token == null || token.path("access_token").asText().isBlank()) {
+            throw new PayPalStageException("token", 0, "no_access_token");
+        }
+        try {
+            return restClient.get()
+                    .uri(apiHost() + "/v1/identity/openidconnect/userinfo/?schema=paypalv1.1")
+                    .headers(headers -> headers.setBearerAuth(token.path("access_token").asText()))
+                    .retrieve().body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            throw new PayPalStageException("profile", exception.getStatusCode().value(), errorIdentifier(exception));
+        }
     }
 
     private boolean isConfigured() {
