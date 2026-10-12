@@ -1,0 +1,378 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import {
+  Activity,
+  ArrowUpRight,
+  Check,
+  CircleDollarSign,
+  FileCheck2,
+  Fingerprint,
+  LayoutDashboard,
+  LockKeyhole,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  WalletCards,
+  X,
+} from 'lucide-react'
+import './App.css'
+
+type IntentContract = {
+  intentId: string
+  naturalLanguageRequest: string
+  goal: string
+  maxAmount: number
+  currency: string
+  allowRecurringPayments: boolean
+  allowSubscriptions: boolean
+  allowUnrequestedAddons: boolean
+  maximumQuantities: Record<string, number>
+  createdAt: string
+}
+
+type RepairResult = {
+  status: 'APPROVED' | 'NEEDS_USER_REVIEW'
+  attempts: number
+  proposal: {
+    total: number
+    items: Array<{ name: string; quantity: number; unitPrice: number }>
+  }
+  explanation: string
+}
+
+type AuthSession = {
+  authenticated: boolean
+  loginConfigured: boolean
+  userId?: string
+  name?: string
+  email?: string
+  csrfToken?: string
+}
+
+type IntegrationStatus = {
+  paypalCatalogConfigured: boolean
+  elasticPersistenceEnabled: boolean
+  authenticationRequired: boolean
+}
+
+type CatalogProduct = {
+  id: string
+  name: string
+  description?: string
+}
+
+function App() {
+  const [health, setHealth] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [auth, setAuth] = useState<AuthSession>({ authenticated: false, loginConfigured: false })
+  const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null)
+  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogMessage, setCatalogMessage] = useState('')
+  const [request, setRequest] = useState('')
+  const [goal, setGoal] = useState('')
+  const [maxAmount, setMaxAmount] = useState('')
+  const [limitedItemName, setLimitedItemName] = useState('')
+  const [itemQuantityLimit, setItemQuantityLimit] = useState('')
+  const [allowRecurringPayments, setAllowRecurringPayments] = useState(false)
+  const [allowSubscriptions, setAllowSubscriptions] = useState(false)
+  const [allowUnrequestedAddons, setAllowUnrequestedAddons] = useState(false)
+  const [activeIntent, setActiveIntent] = useState<IntentContract | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [repairing, setRepairing] = useState(false)
+  const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
+  const [notice, setNotice] = useState('')
+  const [noticeKind, setNoticeKind] = useState<'success' | 'error'>('success')
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    fetch('/api/health', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error('Health check failed')
+        return response.json()
+      })
+      .then(() => setHealth('online'))
+      .catch(() => {
+        if (!controller.signal.aborted) setHealth('offline')
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/integrations/status', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error('Integration status unavailable')
+        return response.json()
+      })
+      .then((status: IntegrationStatus) => setIntegrations(status))
+      .catch(() => {
+        if (!controller.signal.aborted) setIntegrations(null)
+      })
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/auth/session', { signal: controller.signal })
+      .then((response) => response.json())
+      .then((session: AuthSession) => setAuth(session))
+      .catch(() => {
+        if (!controller.signal.aborted) setAuth({ authenticated: false, loginConfigured: false })
+      })
+    return () => controller.abort()
+  }, [])
+
+  async function saveIntent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSaving(true)
+    setNotice('')
+    try {
+      const response = await fetch('/api/intents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        body: JSON.stringify({
+          userId: auth.authenticated ? auth.userId : 'demo-user',
+          naturalLanguageRequest: request.trim(),
+          goal: goal.trim(),
+          maxAmount: Number(maxAmount),
+          currency: 'USD',
+          allowRecurringPayments,
+          allowSubscriptions,
+          allowUnrequestedAddons,
+          maximumQuantities: limitedItemName.trim() && itemQuantityLimit
+            ? { [limitedItemName.trim()]: Number(itemQuantityLimit) }
+            : {},
+          allowedCategories: [],
+          requiredAttributes: {},
+          preferredAttributes: {},
+          prohibitedItems: [],
+          merchantRestrictions: [],
+        }),
+      })
+      if (!response.ok) throw new Error('The API rejected this intent. Check the required fields and try again.')
+      const createdIntent = await response.json() as IntentContract
+      setActiveIntent(createdIntent)
+      setRepairResult(null)
+      setNotice(`Contract ${createdIntent.intentId} saved. AI extraction is not connected yet.`)
+      setNoticeKind('success')
+      setRequest('')
+      setGoal('')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not save the intent.')
+      setNoticeKind('error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function loadExample() {
+    setRequest('Find me a laptop for software development under $1,000. No subscriptions.')
+    setGoal('Development laptop')
+    setMaxAmount('1000')
+    setLimitedItemName('Development laptop')
+    setItemQuantityLimit('1')
+    setAllowRecurringPayments(false)
+    setAllowSubscriptions(false)
+    setAllowUnrequestedAddons(false)
+  }
+
+  async function runRepair() {
+    if (!activeIntent) return
+    setRepairing(true)
+    setNotice('')
+    try {
+      const proposal = {
+        proposalId: `PROP-${crypto.randomUUID()}`,
+        intentId: activeIntent.intentId,
+        currency: activeIntent.currency,
+        items: [
+          { name: 'Development laptop', category: 'laptop', quantity: 1, unitPrice: 899, attributes: { ram: '32GB' } },
+          { name: 'Extended warranty', category: 'laptop', quantity: 1, unitPrice: 199, addOn: true },
+          { name: 'Antivirus subscription', category: 'laptop', quantity: 1, unitPrice: 79, recurring: true, subscription: true, addOn: true },
+        ],
+        shipping: 0,
+        tax: 72,
+        total: 1249,
+      }
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/repair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        body: JSON.stringify(proposal),
+      })
+      if (!response.ok) throw new Error('The repair request failed. Check the API and try again.')
+      setRepairResult(await response.json() as RepairResult)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not run proposal repair.')
+      setNoticeKind('error')
+    } finally {
+      setRepairing(false)
+    }
+  }
+
+  async function loadCatalog() {
+    setCatalogLoading(true)
+    setCatalogMessage('')
+    try {
+      const response = await fetch('/api/catalog/products?page=1&pageSize=20')
+      if (!response.ok) throw new Error(response.status === 401 ? 'Sign in with PayPal to browse the catalog.' : 'PayPal Catalog request failed. Check Sandbox access.')
+      const result = await response.json()
+      setCatalogProducts(Array.isArray(result.products) ? result.products : [])
+      setCatalogMessage(Array.isArray(result.products) && result.products.length
+        ? `${result.products.length} product records loaded.`
+        : 'No products are listed in this PayPal catalog yet.')
+    } catch (error) {
+      setCatalogMessage(error instanceof Error ? error.message : 'Could not load the catalog.')
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar" aria-label="Primary navigation">
+        <a className="brand" href="#dashboard" aria-label="IntentOS home">
+          <span className="brand-mark"><Fingerprint size={21} strokeWidth={1.8} /></span>
+          <span>intent<span className="brand-light">os</span></span>
+        </a>
+
+        <div className="workspace-label">WORKSPACE</div>
+        <nav className="nav-list">
+          <a className="nav-item active" href="#dashboard"><LayoutDashboard size={17} />Overview</a>
+          <a className="nav-item" href="#intents"><ShieldCheck size={17} />Intent policies</a>
+          <a className="nav-item" href="#receipts"><ReceiptText size={17} />Agent receipts</a>
+          <a className="nav-item" href="#activity"><Activity size={17} />Agent activity</a>
+          <a className="nav-item" href="#catalog"><ShoppingBag size={17} />PayPal catalog</a>
+        </nav>
+
+        <div className="sidebar-spacer" />
+        <div className="sandbox-card">
+          <div className="sandbox-icon"><LockKeyhole size={16} /></div>
+          <div><strong>Sandbox mode</strong><span>Payments are simulated</span></div>
+          <span className="live-dot" aria-label="Sandbox active" />
+        </div>
+        <div className="profile-row">
+          <div className="avatar">AS</div>
+          <div className="profile-copy"><strong>{auth.authenticated ? auth.name : 'Alex Smith'}</strong><span>{auth.authenticated ? 'PayPal account' : 'Personal workspace'}</span></div>
+          <button className="icon-button profile-menu" aria-label="Open account menu"><Plus size={16} /></button>
+        </div>
+      </aside>
+
+      <main id="dashboard" className="main-content">
+        <header className="topbar">
+          <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>Overview</strong></div>
+          <div className="topbar-actions">
+            <div className={`backend-status ${health}`}><span className="status-dot" />API {health === 'checking' ? 'checking' : health === 'online' ? 'connected' : 'offline'}</div>
+            {auth.authenticated ? <button className="auth-button" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {} }); setAuth({ authenticated: false, loginConfigured: auth.loginConfigured }) }}>Sign out</button> : auth.loginConfigured ? <a className="auth-button" href="/api/auth/paypal">Sign in with PayPal</a> : <span className="auth-unavailable">PayPal Login not configured</span>}
+            <button className="icon-button search-button" aria-label="Search"><Search size={17} /></button>
+            <div className="top-avatar">{auth.authenticated && auth.name ? auth.name.slice(0, 1).toUpperCase() : 'AS'}</div>
+          </div>
+        </header>
+
+        <div className="page-content">
+          <section className="page-heading">
+            <div>
+              <div className="eyebrow"><span className="eyebrow-rule" />THURSDAY, OCTOBER 8, 2026</div>
+              <h1>Purchase control</h1>
+              <p className="heading-copy">Your agents, operating within your intent.</p>
+            </div>
+            <button className="secondary-button" onClick={loadExample}><Sparkles size={16} />Load demo request</button>
+          </section>
+
+          <section className="metrics" aria-label="Purchase summary">
+            <div className="metric-cell"><div className="metric-icon ink"><ShoppingBag size={17} /></div><div className="metric-label">Autonomous purchases</div><div className="metric-value">0 <span>this month</span></div></div>
+            <div className="metric-cell"><div className="metric-icon coral"><ShieldCheck size={17} /></div><div className="metric-label">Intent violations</div><div className="metric-value">0 <span>detected</span></div></div>
+            <div className="metric-cell"><div className="metric-icon green"><CircleDollarSign size={17} /></div><div className="metric-label">Spend prevented</div><div className="metric-value">$0<span>.00</span></div></div>
+            <div className="metric-cell"><div className="metric-icon blue"><FileCheck2 size={17} /></div><div className="metric-label">Intent compliance</div><div className="metric-value">— <span>no transactions yet</span></div></div>
+          </section>
+
+          <div className="workspace-grid">
+            <div className="primary-column">
+              <section className="intent-composer" id="intents">
+                <div className="section-heading">
+                  <div className="section-icon"><Fingerprint size={18} /></div>
+                  <div><h2>New intent contract</h2><p>Set the goal and payment boundaries explicitly.</p></div>
+                  <span className="draft-label">MANUAL</span>
+                </div>
+                <form onSubmit={saveIntent}>
+                  <label className="sr-only" htmlFor="intent-request">Describe the purchase you want your agent to make</label>
+                  <textarea id="intent-request" value={request} onChange={(event) => setRequest(event.target.value)} placeholder={'For example: “Find a development laptop under $1,000. No subscriptions.”'} rows={3} />
+                  <div className="intent-fields">
+                    <label className="form-field"><span>Goal</span><input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Development laptop" required /></label>
+                    <label className="form-field budget-field"><span>Maximum total <small>USD</small></span><input type="number" min="0.01" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="1,000.00" required /></label>
+                  </div>
+                  <div className="quantity-fields">
+                    <label className="form-field"><span>Limit applies to item</span><input value={limitedItemName} onChange={(event) => setLimitedItemName(event.target.value)} placeholder="Development laptop" /></label>
+                    <label className="form-field"><span>Maximum quantity</span><input type="number" min="1" step="1" value={itemQuantityLimit} onChange={(event) => setItemQuantityLimit(event.target.value)} placeholder="1" /></label>
+                  </div>
+                  <fieldset className="policy-toggles">
+                    <legend>Payment permissions</legend>
+                    <label><input type="checkbox" checked={allowRecurringPayments} onChange={(event) => setAllowRecurringPayments(event.target.checked)} /><span>Recurring payments</span></label>
+                    <label><input type="checkbox" checked={allowSubscriptions} onChange={(event) => setAllowSubscriptions(event.target.checked)} /><span>Subscriptions</span></label>
+                    <label><input type="checkbox" checked={allowUnrequestedAddons} onChange={(event) => setAllowUnrequestedAddons(event.target.checked)} /><span>Unrequested add-ons</span></label>
+                  </fieldset>
+                  <div className="composer-footer">
+                    <span className="composer-hint"><LockKeyhole size={13} />Stored in server memory for this session</span>
+                    <button className="primary-button" type="submit" disabled={!request.trim() || !goal.trim() || !maxAmount || saving}><Plus size={16} />{saving ? 'Saving contract…' : 'Create intent contract'}</button>
+                  </div>
+                </form>
+                {notice && <p className={`notice ${noticeKind}`} role="status"><Check size={14} />{notice}</p>}
+                {activeIntent && <article className="saved-contract"><div className="draft-row"><div className="draft-status"><ShieldCheck size={15} /></div><div className="draft-copy"><p>{activeIntent.goal}</p><span>{activeIntent.intentId} · In-memory contract</span></div><strong className="contract-budget">${activeIntent.maxAmount.toFixed(2)}</strong></div><button className="repair-button" onClick={runRepair} disabled={repairing}><ShieldCheck size={14} />{repairing ? 'Checking and repairing…' : 'Run sample proposal repair'}</button></article>}
+                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired and approved' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p><div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No PayPal Catalog item was used and no payment was created.</small></div>}
+              </section>
+
+              <section className="activity-section" id="activity">
+                <div className="section-heading activity-heading">
+                  <div><h2>Recent activity</h2><p>Decision events across your agents</p></div>
+                  <button className="text-button" disabled>View timeline <ArrowUpRight size={15} /></button>
+                </div>
+                <div className="empty-activity">
+                  <div className="empty-glyph"><Activity size={20} /></div>
+                  <strong>No agent activity yet</strong>
+                  <span>Approved proposals and policy checks will appear here.</span>
+                </div>
+              </section>
+
+              <section className="activity-section catalog-section" id="catalog">
+                <div className="section-heading activity-heading">
+                  <div><h2>PayPal Catalog</h2><p>Read-only product records from your Sandbox app</p></div>
+                  <button className="text-button" onClick={loadCatalog} disabled={!integrations?.paypalCatalogConfigured || catalogLoading} title={!integrations?.paypalCatalogConfigured ? 'Configure PayPal Sandbox credentials first' : 'Refresh product records'}><RefreshCw size={14} />{catalogLoading ? 'Loading' : 'Refresh'}</button>
+                </div>
+                {!integrations?.paypalCatalogConfigured && <div className="catalog-empty">Add PayPal Sandbox app credentials to `.env` to browse catalog metadata.</div>}
+                {integrations?.paypalCatalogConfigured && catalogMessage && <div className="catalog-empty" role="status">{catalogMessage}</div>}
+                {catalogProducts.length > 0 && <div className="catalog-list">{catalogProducts.map((product) => <article className="catalog-product" key={product.id}><div><strong>{product.name}</strong><p>{product.description || 'No description provided.'}</p><span>Product ID · {product.id}</span></div><small>Metadata only<br />No offer price</small></article>)}</div>}
+              </section>
+            </div>
+
+            <aside className="secondary-column">
+              <section className="guardrail-panel">
+                <div className="panel-heading"><div><span className="panel-kicker">POLICY STATUS</span><h2>Guardrails</h2></div><ShieldCheck size={19} /></div>
+                <div className="guardrail-row"><span className="guardrail-symbol"><CircleDollarSign size={16} /></span><div><strong>Maximum spend</strong><span>{activeIntent ? `$${activeIntent.maxAmount.toFixed(2)} USD` : 'Not configured'}</span></div><span className="neutral-pill">{activeIntent ? 'Set' : 'Unset'}</span></div>
+                <div className="guardrail-row"><span className="guardrail-symbol coral-symbol"><WalletCards size={16} /></span><div><strong>Recurring charges</strong><span>{activeIntent ? (activeIntent.allowRecurringPayments ? 'Allowed' : 'Prohibited') : 'Not configured'}</span></div><span className="neutral-pill">{activeIntent ? 'Set' : 'Unset'}</span></div>
+                <div className="guardrail-row"><span className="guardrail-symbol green-symbol"><X size={16} /></span><div><strong>Unrequested add-ons</strong><span>{activeIntent ? (activeIntent.allowUnrequestedAddons ? 'Allowed' : 'Prohibited') : 'Not configured'}</span></div><span className="neutral-pill">{activeIntent ? 'Set' : 'Unset'}</span></div>
+                <button className="panel-link" disabled>Manage intent policies <ArrowUpRight size={15} /></button>
+              </section>
+
+              <section className="services-panel">
+                <div className="panel-heading"><div><span className="panel-kicker">CONNECTED SERVICES</span><h2>Infrastructure</h2></div></div>
+                <div className="service-row"><span className={`service-indicator ${health}`} /><span>IntentOS API</span><span className="service-state">{health === 'online' ? 'Online' : health === 'checking' ? 'Checking' : 'Offline'}</span></div>
+                <div className="service-row"><span className={`service-indicator ${integrations?.paypalCatalogConfigured ? 'online' : 'pending'}`} /><span>PayPal Catalog</span><span className={`service-state ${integrations?.paypalCatalogConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.paypalCatalogConfigured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
+                <div className="service-row"><span className={`service-indicator ${integrations?.elasticPersistenceEnabled ? 'online' : 'pending'}`} /><span>Elastic persistence</span><span className={`service-state ${integrations?.elasticPersistenceEnabled ? '' : 'pending-text'}`}>{integrations ? integrations.elasticPersistenceEnabled ? 'Enabled' : 'In memory' : 'Checking'}</span></div>
+              </section>
+
+              <div className="boundary-note"><LockKeyhole size={15} /><p><strong>Payment boundary</strong><span>Orders will only be created after an intent policy approves the proposal.</span></p></div>
+            </aside>
+          </div>
+
+          <footer className="page-footer"><span>INTENTOS · PRIVATE PREVIEW</span><span>BUILD 0.1.0 <span className="footer-separator">/</span> SANDBOX</span></footer>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+export default App

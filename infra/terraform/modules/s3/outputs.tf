@@ -1,0 +1,23 @@
+output "frontend_bucket_id" {
+  value = aws_s3_bucket.frontend.id
+}
+
+output "frontend_bucket_name" {
+  value = aws_s3_bucket.frontend.bucket
+}
+
+output "frontend_bucket_domain" {
+  value = aws_s3_bucket.frontend.bucket_regional_domain_name
+}
+
+output "frontend_bucket_arn" {
+  value = aws_s3_bucket.frontend.arn
+}
+
+output "artifact_bucket_name" {
+  value = aws_s3_bucket.artifacts.bucket
+}
+
+output "artifact_bucket_arn" {
+  value = aws_s3_bucket.artifacts.arn
+}
