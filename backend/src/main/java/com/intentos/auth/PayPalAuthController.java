@@ -155,6 +155,7 @@ public class PayPalAuthController {
         LinkedMultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "authorization_code");
         form.add("code", code);
+        form.add("redirect_uri", redirectUri);
         JsonNode token = restClient.post()
                 .uri(apiHost() + "/v1/oauth2/token")
                 .headers(headers -> headers.setBasicAuth(clientId, clientSecret))

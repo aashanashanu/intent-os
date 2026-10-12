@@ -1,6 +1,7 @@
 package com.intentos.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withUnauthorizedRequest;
@@ -19,6 +20,8 @@ class PayPalAuthControllerTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(clientBuilder).build();
         server.expect(requestTo("https://api-m.sandbox.paypal.com/v1/oauth2/token"))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(
+                        "grant_type=authorization_code&code=authorization-code&redirect_uri=https%3A%2F%2Fapp.example%2Fapi%2Fauth%2Fpaypal%2Fcallback"))
                 .andRespond(withUnauthorizedRequest());
         PayPalAuthController controller = new PayPalAuthController(
                 "client-id", "client-secret", "sandbox", "https://app.example/api/auth/paypal/callback",
