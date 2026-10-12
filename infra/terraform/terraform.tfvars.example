@@ -1,4 +1,4 @@
 aws_region        = "us-east-1"
 project_name      = "intent-os"
 ec2_instance_type = "t3.micro"
-github_oidc_subject = "repo:aashanashanu@40718923/intent-os@1410498326:ref:refs/heads/main"
+github_oidc_subject = "repo:aashanashanu@40718923/intent-os@1410498326:environment:main"

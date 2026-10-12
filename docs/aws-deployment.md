@@ -15,7 +15,7 @@ cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Set `github_oidc_subject` to the exact subject format GitHub sends for this repository. This repository uses the immutable owner/repository IDs shown in `terraform.tfvars.example`; the branch must match the workflow trust (`main`). Then run:
+Set `github_oidc_subject` to the exact subject format GitHub sends for this repository. This repository uses the environment-scoped deployment named `main`; use the immutable owner/repository IDs shown in `terraform.tfvars.example`. The workflow job targets that environment, and the IAM trust accepts only its environment subject. Then run:
 
 ```sh
 terraform init
@@ -53,13 +53,13 @@ The workflow defaults to the current deployment's Terraform outputs, so these re
 - `INTENTOS_ELASTIC_ENABLED`: `false` unless Elastic is configured.
 - `INTENTOS_ELASTIC_URL`: optional Elasticsearch HTTPS endpoint.
 
-Only the PayPal credentials below are required GitHub secrets for the default deployment. Add the Elastic key only when Elastic is enabled:
+The workflow targets the GitHub Environment named `main`. In **Settings → Environments → main → Deployment branches and tags**, restrict deployments to the `main` branch. This is important because GitHub's environment OIDC subject does not include the branch name. Add the PayPal credentials below under **Settings → Environments → main → Environment secrets**. Environment-scoped secrets are not exposed to a job unless it declares that environment. Add the Elastic key there only when Elastic is enabled:
 
 - `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`: PayPal REST app credentials.
 - `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET`: optional separate Login credentials; if unset, REST credentials are used.
 - `INTENTOS_ELASTIC_API_KEY`: optional encoded Elasticsearch API key.
 
-No AWS access-key secret is needed. GitHub Actions assumes the repository-scoped IAM role using OIDC. Push to `main` or run **Deploy to AWS** from the Actions tab. CI builds and tests Spring Boot, builds React, syncs the frontend to S3, stores the backend image in a private deployment bucket, stores runtime credentials as an SSM `SecureString`, and uses SSM Run Command to restart the container. It invalidates CloudFront after deployment. The workflow role trusts only the configured repository's `main` branch.
+No AWS access-key secret is needed. GitHub Actions assumes the IAM role using OIDC; its trust subject is restricted to this repository's `main` environment. Push to `main` or run **Deploy to AWS** from the Actions tab. CI builds and tests Spring Boot, builds React, syncs the frontend to S3, stores the backend image in a private deployment bucket, stores runtime credentials as an SSM `SecureString`, and uses SSM Run Command to restart the container. It invalidates CloudFront after deployment.
 
 ## Configure PayPal Login
 
