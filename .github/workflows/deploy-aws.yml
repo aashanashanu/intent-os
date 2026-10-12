@@ -36,7 +36,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
           role-session-name: IntentOSGitHubDeploy
 
       - name: Upload frontend to private S3 origin
@@ -64,7 +64,7 @@ jobs:
       - name: Prepare deployment configuration
         env:
           PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
           BACKEND_ARTIFACT_BUCKET: ${{ vars.BACKEND_ARTIFACT_BUCKET }}
           BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID }}
           RUNTIME_PARAMETER_NAME: ${{ vars.RUNTIME_PARAMETER_NAME }}
@@ -81,7 +81,7 @@ jobs:
 
       - name: Store backend runtime secrets in Parameter Store
         env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
         run: |
           aws ssm put-parameter \
             --cli-input-json file://runtime-parameter.json \
@@ -90,7 +90,7 @@ jobs:
 
       - name: Wait for EC2 Systems Manager registration
         env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
           BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID }}
         run: |
           for attempt in $(seq 1 40); do
@@ -107,7 +107,7 @@ jobs:
 
       - name: Send backend deployment through SSM
         env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
           BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID }}
         run: |
           command_id=$(aws ssm send-command \

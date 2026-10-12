@@ -41,7 +41,7 @@ CloudFront can take several minutes to deploy. The first CI run waits for EC2 to
 
 In repository **Settings → Secrets and variables → Actions**, set these repository variables from Terraform outputs:
 
-- `AWS_REGION`: Terraform region.
+- `AWS_REGION`: Terraform region; optional when using the default `us-east-1` region. Set it explicitly if Terraform was provisioned in another region.
 - `AWS_DEPLOY_ROLE_ARN`: `github_deploy_role_arn`.
 - `PUBLIC_APP_URL`: `app_url`, including `https://` and no path.
 - `CLOUDFRONT_DISTRIBUTION_ID`: `cloudfront_distribution_id`.
