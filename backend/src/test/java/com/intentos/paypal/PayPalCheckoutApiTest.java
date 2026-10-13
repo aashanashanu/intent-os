@@ -1,7 +1,10 @@
 package com.intentos.paypal;
 
 import com.intentos.intent.TransactionProposal;
+import com.intentos.intent.OfferEvidence;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -30,9 +33,13 @@ class PayPalCheckoutApiTest {
     @MockitoBean
     private PayPalOrdersService ordersService;
 
+        @MockitoBean
+        private Channel3OfferService channel3OfferService;
+
     @Test
     void blockedProposalCannotCreatePayPalOrder() throws Exception {
         String intentId = createIntent("10");
+                when(channel3OfferService.refresh(any(OfferEvidence.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         mockMvc.perform(post("/api/intents/{intentId}/orders", intentId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -42,9 +49,25 @@ class PayPalCheckoutApiTest {
         verifyNoInteractions(ordersService);
     }
 
+        @Test
+        void changedChannel3PriceCannotCreatePayPalOrder() throws Exception {
+                String intentId = createIntent("100");
+                when(channel3OfferService.refresh(any(OfferEvidence.class))).thenReturn(new OfferEvidence(
+                                "channel3", "C3-PRODUCT-1", "Laptop", "laptop", "demo.test",
+                                "https://demo.test/laptop", new BigDecimal("49.00"), "USD", "InStock", java.util.Map.of(), Instant.now()));
+
+                mockMvc.perform(post("/api/intents/{intentId}/orders", intentId)
+                                                .contentType(MediaType.APPLICATION_JSON)
+                                                .content(proposal(intentId, "48.00")))
+                                .andExpect(status().isConflict());
+
+                verifyNoInteractions(ordersService);
+        }
+
     @Test
     void approvedProposalCreatesOrderUsingValidatedTotalAndContractCurrency() throws Exception {
         String intentId = createIntent("100");
+        when(channel3OfferService.refresh(any(OfferEvidence.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ordersService.createOrder(anyString(), any(TransactionProposal.class), any(BigDecimal.class), anyString()))
                 .thenReturn(new PayPalOrderResponse("ORDER-1", "CREATED", "https://paypal.test/approve"));
 
@@ -65,6 +88,7 @@ class PayPalCheckoutApiTest {
     @Test
     void duplicateCaptureReturnsStoredResultWithoutCallingPayPalAgain() throws Exception {
         String intentId = createIntent("100");
+        when(channel3OfferService.refresh(any(OfferEvidence.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ordersService.createOrder(anyString(), any(TransactionProposal.class), any(BigDecimal.class), anyString()))
                 .thenReturn(new PayPalOrderResponse("ORDER-REPLAY", "CREATED", "https://paypal.test/approve"));
         mockMvc.perform(post("/api/intents/{intentId}/orders", intentId)
@@ -89,6 +113,7 @@ class PayPalCheckoutApiTest {
     void cannotCaptureAnOrderThroughAnotherIntent() throws Exception {
         String orderIntentId = createIntent("100");
         String otherIntentId = createIntent("100");
+        when(channel3OfferService.refresh(any(OfferEvidence.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ordersService.createOrder(anyString(), any(TransactionProposal.class), any(BigDecimal.class), anyString()))
                 .thenReturn(new PayPalOrderResponse("ORDER-BOUND", "CREATED", "https://paypal.test/approve"));
         mockMvc.perform(post("/api/intents/{intentId}/orders", orderIntentId)
@@ -128,11 +153,16 @@ class PayPalCheckoutApiTest {
                   "proposalId":"PROP-PAYMENT",
                   "intentId":"%s",
                   "currency":"USD",
-                  "items":[{"name":"Laptop","category":"laptop","quantity":1,"unitPrice":48}],
+                  "items":[{"name":"Laptop","category":"laptop","quantity":1,"unitPrice":48,"merchant":"demo.test"}],
                   "shipping":0,
                   "tax":0,
-                  "total":%s
+                                                                        "total":%s,
+                                                                        "offerEvidence":[{
+                                                                                    "source":"channel3","productId":"C3-PRODUCT-1","productName":"Laptop","category":"laptop",
+                                                                                "retailer":"demo.test","offerUrl":"https://demo.test/laptop",
+                                                                                    "price":48,"currency":"USD","availability":"InStock","attributes":{},"retrievedAt":"%s"
+                                                                        }]
                 }
-                """.formatted(intentId, submittedTotal);
+                                                                """.formatted(intentId, submittedTotal, Instant.now().toString());
     }
 }

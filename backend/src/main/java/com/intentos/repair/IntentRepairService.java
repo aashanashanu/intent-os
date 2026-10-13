@@ -118,7 +118,7 @@ public class IntentRepairService {
         BigDecimal correctedTotal = total(items, proposal.shipping(), proposal.tax());
         TransactionProposal corrected = new TransactionProposal(
                 proposal.proposalId(), proposal.intentId(), proposal.currency(), items,
-                proposal.shipping(), proposal.tax(), correctedTotal);
+            proposal.shipping(), proposal.tax(), correctedTotal, proposal.offerEvidence());
         return corrected.equals(proposal) ? null : corrected;
     }
 

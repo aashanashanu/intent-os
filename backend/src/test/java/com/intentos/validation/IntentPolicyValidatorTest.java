@@ -56,6 +56,34 @@ class IntentPolicyValidatorTest {
     }
 
     @Test
+    void blocksProposalWhenTaxOrShippingIsUnknown() {
+        IntentContract intent = intent(new BigDecimal("1000"), new BigDecimal("0.94"), Map.of(), Map.of());
+        TransactionProposal proposal = new TransactionProposal("PROP-1", "INT-1", "USD",
+                List.of(item("Developer Laptop", "899", false, false, false, Map.of())),
+                null, null, new BigDecimal("899"));
+
+        ValidationResult result = validator.validate(intent, proposal);
+
+        assertEquals(ValidationDecision.BLOCK, result.decision());
+        assertTrue(hasViolation(result, "MISSING_TAX"));
+        assertTrue(hasViolation(result, "MISSING_SHIPPING"));
+    }
+
+    @Test
+    void blocksNegativeTaxOrShipping() {
+        IntentContract intent = intent(new BigDecimal("1000"), new BigDecimal("0.94"), Map.of(), Map.of());
+        TransactionProposal proposal = new TransactionProposal("PROP-1", "INT-1", "USD",
+                List.of(item("Developer Laptop", "899", false, false, false, Map.of())),
+                new BigDecimal("-5"), new BigDecimal("-10"), new BigDecimal("884"));
+
+        ValidationResult result = validator.validate(intent, proposal);
+
+        assertEquals(ValidationDecision.BLOCK, result.decision());
+        assertTrue(hasViolation(result, "INVALID_TAX"));
+        assertTrue(hasViolation(result, "INVALID_SHIPPING"));
+    }
+
+    @Test
     void requestsModificationForPreferenceMismatchWithoutBlocking() {
         IntentContract intent = intent(new BigDecimal("1000"), new BigDecimal("0.94"), Map.of(), Map.of("color", "black"));
         ValidationResult result = validator.validate(intent,

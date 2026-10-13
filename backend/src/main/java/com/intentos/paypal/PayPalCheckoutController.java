@@ -3,6 +3,7 @@ package com.intentos.paypal;
 import com.intentos.intent.IntentAccessService;
 import com.intentos.intent.IntentDecisionEvent;
 import com.intentos.intent.IntentDecisionEventStore;
+import com.intentos.intent.OfferEvidence;
 import com.intentos.intent.TransactionProposal;
 import com.intentos.validation.IntentPolicyValidator;
 import com.intentos.validation.ValidationDecision;
@@ -24,6 +25,7 @@ public class PayPalCheckoutController {
     private final IntentAccessService intentAccessService;
     private final IntentPolicyValidator validator;
     private final PayPalOrdersService ordersService;
+    private final Channel3OfferService channel3OfferService;
     private final PayPalCheckoutStore checkoutStore;
     private final IntentDecisionEventStore eventStore;
 
@@ -31,11 +33,13 @@ public class PayPalCheckoutController {
             IntentAccessService intentAccessService,
             IntentPolicyValidator validator,
             PayPalOrdersService ordersService,
+            Channel3OfferService channel3OfferService,
             PayPalCheckoutStore checkoutStore,
             IntentDecisionEventStore eventStore) {
         this.intentAccessService = intentAccessService;
         this.validator = validator;
         this.ordersService = ordersService;
+        this.channel3OfferService = channel3OfferService;
         this.checkoutStore = checkoutStore;
         this.eventStore = eventStore;
     }
@@ -51,20 +55,46 @@ public class PayPalCheckoutController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Intent currency is required for PayPal checkout");
         }
 
-        var result = validator.validate(intent, proposal);
+        if (proposal.offerEvidence().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Select a priced Channel3 offer before checkout");
+        }
+        if (proposal.offerEvidence().size() != proposal.items().size()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Every cart item must have verified offer evidence");
+        }
+        List<OfferEvidence> refreshedEvidence = proposal.offerEvidence().stream()
+                .map(channel3OfferService::refresh).toList();
+        List<OfferEvidence> unmatchedEvidence = new java.util.ArrayList<>(refreshedEvidence);
+        for (TransactionProposal.Item item : proposal.items()) {
+            int evidenceIndex = java.util.stream.IntStream.range(0, unmatchedEvidence.size())
+                    .filter(index -> matchesItem(item, unmatchedEvidence.get(index), intent.currency()))
+                .findFirst().orElse(-1);
+            if (evidenceIndex < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Every cart item must match its freshly checked Channel3 offer details");
+            }
+            unmatchedEvidence.remove(evidenceIndex);
+        }
+        if (!unmatchedEvidence.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Offer evidence contains items outside the cart");
+        }
+        TransactionProposal verifiedProposal = new TransactionProposal(
+                proposal.proposalId(), proposal.intentId(), proposal.currency(), proposal.items(),
+                proposal.shipping(), proposal.tax(), proposal.total(), refreshedEvidence);
+        var result = validator.validate(intent, verifiedProposal);
         appendEvent(intentId, proposal.proposalId(), "VALIDATION", result.decision(), result.calculatedTotal(),
-            result.violations(), result.explanation(), proposal);
+            result.violations(), result.explanation(), verifiedProposal);
         if (result.decision() != ValidationDecision.APPROVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only deterministically approved proposals can create PayPal orders");
         }
 
         PayPalOrderResponse order = ordersService.createOrder(
-                intentId, proposal, result.calculatedTotal(), intent.currency());
+            intentId, verifiedProposal, result.calculatedTotal(), intent.currency());
         checkoutStore.save(new PayPalCheckoutSession(
-            order.orderId(), intentId, proposal.proposalId(), proposal, result.calculatedTotal(), intent.currency(),
+            order.orderId(), intentId, verifiedProposal.proposalId(), verifiedProposal, result.calculatedTotal(), intent.currency(),
                 PayPalCheckoutSession.State.CREATED, null));
         appendEvent(intentId, proposal.proposalId(), "PAYPAL_ORDER_CREATED", ValidationDecision.APPROVE,
-            result.calculatedTotal(), List.of(), "PayPal order " + order.orderId() + " created with status " + order.status(), proposal);
+            result.calculatedTotal(), List.of(), "PayPal Sandbox order " + order.orderId()
+                + " created with status " + order.status() + "; retailer settlement is not implied", verifiedProposal);
         return order;
     }
 
@@ -110,5 +140,14 @@ public class PayPalCheckoutController {
         eventStore.append(new IntentDecisionEvent(
                 "EVT-" + UUID.randomUUID(), intentId, proposalId, Instant.now(), eventType,
                 decision, amount, violations, explanation, proposalSnapshot));
+    }
+
+    private static boolean matchesItem(TransactionProposal.Item item, OfferEvidence evidence, String currency) {
+        return item.name().equalsIgnoreCase(evidence.productName())
+                && item.unitPrice() != null && item.unitPrice().compareTo(evidence.price()) == 0
+                && item.merchant() != null && item.merchant().equalsIgnoreCase(evidence.retailer())
+                && currency.equalsIgnoreCase(evidence.currency())
+                && java.util.Objects.equals(item.category(), evidence.category())
+                && item.attributes().equals(evidence.attributes());
     }
 }

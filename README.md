@@ -8,17 +8,18 @@ IntentOS is a trust layer for agentic commerce. It turns explicit purchase const
 - Enforce budgets, categories, required attributes, recurring/subscription permissions, prohibited products, merchant restrictions, per-item quantity caps, and proposal-total consistency.
 - Repair proposals conservatively: clamp configured quantities, remove clearly disallowed extras, and remove optional add-ons to satisfy budget. Unsafe or unresolved changes require user review.
 - Optional PayPal Login using an authorization-code flow, state validation, server-side token exchange, HTTP-only session, and per-user contract access.
-- PayPal Catalog read endpoint and VS Code MCP server restricted to catalog list/detail tools.
+- PayPal Catalog metadata endpoint and read-only PayPal MCP tools; Channel3 server-side product search supplies retailer offers with current price/availability and retained provenance.
 - Optional Elasticsearch persistence for Intent Contracts, append-only decision/repair events, PayPal checkout state, webhook deduplication, and AgentReceipts. In-memory storage is the local default.
 - Configurable Amazon Bedrock Converse model assignments: Nova Micro for intent extraction and explanation; Nova Lite for reasoning and repair suggestions. Model output is advisory and deterministic Java policies make all purchase decisions.
 
-PayPal Orders v2 creation is gated by fresh deterministic approval, the frontend uses the PayPal JavaScript SDK v6 for buyer approval, and the backend verifies approval before server-side capture. AgentReceipts are finalized only from signature-verified completed-capture webhooks and can be persisted in Elasticsearch. Shopping-agent offer discovery, semantic search, and Elastic Agent Builder remain future work. The shared Bedrock Converse client supports per-task model IDs: extraction with Nova Micro, ambiguity/conflict review and repair advice with Nova Lite, and event-grounded explanations with Nova Micro. Model suggestions are advisory; Java policy validation remains authoritative. Nova currently produces prompted JSON rather than Bedrock constrained structured output, so the backend validates the response and fails closed if it is invalid. PayPal Catalog returns product metadata rather than live merchant offers/prices, so a separate offer source is required before building a catalog-priced cart.
+The Shopping Agent now searches Channel3 using the saved intent goal and required attributes, lets the user choose a retailer offer, and records source, retailer, price, availability, URL, and retrieval time. The backend refreshes that offer and verifies its price, stock, category, and attributes before a fresh deterministic policy approval can create an order. Unknown tax or shipping blocks checkout until explicitly confirmed. PayPal Orders v2 remains the payment boundary: the frontend uses JavaScript SDK v6 for buyer approval, and the backend captures server-side. AgentReceipts are finalized only from signature-verified completed-capture webhooks and can be persisted in Elasticsearch. Channel3 retailer links are not PayPal settlement; the clearly labeled Sandbox flow pays the configured Sandbox merchant and does not claim to order from the listed retailer. Semantic search and Elastic Agent Builder remain future work. The shared Bedrock Converse client supports per-task model IDs: extraction with Nova Micro, ambiguity/conflict review and repair advice with Nova Lite, and event-grounded explanations with Nova Micro. Model suggestions are advisory; Java policy validation remains authoritative. Nova produces prompted JSON rather than Bedrock constrained structured output, so the backend validates responses and fails closed if invalid.
 
 ## Requirements
 
 - Java 21
 - Node.js 18+ and npm
 - A PayPal Developer account for Sandbox integrations
+- A Channel3 developer account/API key for priced retailer-offer discovery
 - Optional Elastic Cloud deployment and Elasticsearch API key
 
 ## Local setup

@@ -46,6 +46,10 @@ public class PayPalOrdersService {
 
     public PayPalOrderResponse createOrder(
             String intentId, TransactionProposal proposal, BigDecimal calculatedTotal, String currency) {
+        if (proposal.shipping() == null || proposal.tax() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Explicit tax and shipping amounts are required before PayPal checkout");
+        }
         String accessToken = accessToken();
         BigDecimal itemTotal = proposal.items().stream()
             .map(item -> item.unitPrice().multiply(BigDecimal.valueOf(item.quantity())))
@@ -55,8 +59,8 @@ public class PayPalOrdersService {
             "value", money(calculatedTotal),
             "breakdown", Map.of(
                 "item_total", Map.of("currency_code", currency, "value", money(itemTotal)),
-                "shipping", Map.of("currency_code", currency, "value", money(zeroIfNull(proposal.shipping()))),
-                "tax_total", Map.of("currency_code", currency, "value", money(zeroIfNull(proposal.tax())))));
+                "shipping", Map.of("currency_code", currency, "value", money(proposal.shipping())),
+                "tax_total", Map.of("currency_code", currency, "value", money(proposal.tax()))));
         List<Map<String, Object>> items = proposal.items().stream()
             .map(item -> Map.<String, Object>of(
                 "name", item.name(),
@@ -249,7 +253,4 @@ public class PayPalOrdersService {
         }
     }
 
-    private static BigDecimal zeroIfNull(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
-    }
 }

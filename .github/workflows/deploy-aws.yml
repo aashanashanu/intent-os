@@ -74,6 +74,7 @@ jobs:
           PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
           PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_WEBHOOK_ID: ${{ vars.PAYPAL_WEBHOOK_ID || secrets.PAYPAL_WEBHOOK_ID || '' }}
+          CHANNEL3_API_KEY: ${{ secrets.CHANNEL3_API_KEY }}
           PAYPAL_LOGIN_CLIENT_ID: ${{ secrets.PAYPAL_LOGIN_CLIENT_ID }}
           PAYPAL_LOGIN_CLIENT_SECRET: ${{ secrets.PAYPAL_LOGIN_CLIENT_SECRET }}
           INTENTOS_ELASTIC_ENABLED: ${{ vars.INTENTOS_ELASTIC_ENABLED || 'false' }}

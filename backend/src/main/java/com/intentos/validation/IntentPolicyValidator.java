@@ -40,6 +40,18 @@ public class IntentPolicyValidator {
         if (proposal.items().isEmpty()) {
             add(violations, "EMPTY_PROPOSAL", null, "at least one item", "no items");
         }
+        if (proposal.shipping() == null) {
+            add(violations, "MISSING_SHIPPING", null, "explicit shipping amount", null);
+        }
+        if (proposal.tax() == null) {
+            add(violations, "MISSING_TAX", null, "explicit tax amount", null);
+        }
+        if (proposal.shipping() != null && proposal.shipping().signum() < 0) {
+            add(violations, "INVALID_SHIPPING", null, "zero or greater", proposal.shipping().toPlainString());
+        }
+        if (proposal.tax() != null && proposal.tax().signum() < 0) {
+            add(violations, "INVALID_TAX", null, "zero or greater", proposal.tax().toPlainString());
+        }
 
         BigDecimal calculatedTotal = calculateTotal(proposal, violations);
         if (proposal.total() != null && calculatedTotal.compareTo(proposal.total()) != 0) {

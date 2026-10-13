@@ -368,14 +368,21 @@ The system stores the answer in the Intent Contract.
 
 # 11. Shopping Agent
 
-The Shopping Agent searches available products and creates a candidate cart.
+The Shopping Agent searches available products and creates a candidate cart. For priced retailer offers, the preferred discovery source is the Channel3 product API called by the backend. PayPal Catalog may supplement product metadata, but its records must not be treated as live offers or prices.
 
-For the hackathon, this can use:
+Keep the Channel3 API key on the backend. Use the API for the integrated product-search flow; use Channel3 MCP only when intentionally demonstrating MCP interoperability. PayPal MCP/Agent Toolkit is a separate, optional PayPal tool integration and is not the priced-product source.
+
+The agent may use:
 
 - seeded demo catalog
-- PayPal catalog
+- Channel3 search and product/offer lookup
+- PayPal Catalog metadata
 - mock merchant/product data
 - optional external product APIs
+
+When using Channel3, retain the returned product/offer identity, retailer, price, availability, buy URL, and retrieval time as proposal evidence. Recheck the selected offer before checkout. Treat offer data as time-sensitive and untrusted: do not invent missing product attributes, tax, or shipping. If tax or shipping is unknown, stop checkout and request a quote or user confirmation; never interpret a missing value as zero. The AI may formulate search queries and recommend candidates, but its output and tool results do not authorize payment. Java policy validation determines admissibility; final choice must be explicit user selection or a documented deterministic server strategy among admissible offers.
+
+Channel3 discovery is not retailer checkout or settlement. A Channel3 buy URL does not make an Orders v2 payment to the listed retailer. Unless a supported merchant/platform payment integration is configured, clearly label the PayPal Sandbox order as a demo payment to the configured Sandbox merchant and do not claim that the retailer received payment or fulfilled the offer.
 
 The Shopping Agent should NOT directly capture PayPal payments.
 
@@ -677,6 +684,8 @@ The order should include:
 - currency
 - custom identifiers where appropriate
 
+For a Channel3-sourced candidate, include only the explicitly selected, freshly rechecked offer in the proposal and preserve its source, retailer, offer URL, displayed price, availability, and retrieval timestamp for audit. Require known tax and shipping before order creation; absent values must not be defaulted to zero. Do not silently convert a retailer's offer into a claim that the PayPal merchant of record is that retailer. The Sandbox checkout demonstrates buyer approval, capture, and PayPal lifecycle evidence; it is not retailer settlement unless a separate supported integration establishes that relationship.
+
 PayPal's Orders v2 API supports creating, retrieving, authorizing and capturing orders.
 
 ---
@@ -754,6 +763,8 @@ Sandbox buyer
 is sufficient.
 
 Do not spend hackathon time implementing every funding source.
+
+The checkout UI must distinguish the PayPal Sandbox merchant receiving the test payment from any retailer shown in a Channel3 offer. A successful Sandbox capture proves only the configured Sandbox transaction and must not be presented as proof of an order placed with, or funds settled to, the Channel3 retailer.
 
 ---
 
@@ -2391,7 +2402,7 @@ Total         $971
 
 ## PayPal
 
-User completes sandbox checkout.
+User approves and completes the clearly labeled Sandbox checkout with the configured PayPal merchant. If the selected Channel3 retailer is not the PayPal merchant, do not describe this as a completed retailer purchase.
 
 ## Webhook
 
@@ -2651,7 +2662,7 @@ IntentOS must:
 8. Revalidate.
 9. Approve corrected cart.
 10. Create PayPal Sandbox order.
-11. Complete PayPal checkout.
+11. Complete the clearly labeled PayPal Sandbox checkout; do not imply retailer settlement without a supported merchant integration.
 12. Capture payment.
 13. Receive PayPal webhook.
 14. Create AgentReceipt.

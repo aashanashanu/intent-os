@@ -13,11 +13,19 @@ Never post credentials in chat, commit them, or place them in frontend variables
 7. The backend Catalog endpoint is `GET /api/catalog/products?page=1&pageSize=20`. It requests an OAuth client-credentials token server-side and calls PayPal Catalog Products v1 `GET /v1/catalogs/products`. Page size is limited to 20.
 8. In the PayPal app's Sandbox **Webhooks** settings, register `https://<cloudfront-host>.cloudfront.net/api/webhooks/paypal` (or `http://localhost:8080/api/webhooks/paypal` locally) for `PAYMENT.CAPTURE.COMPLETED`. Store the resulting webhook ID as `PAYPAL_WEBHOOK_ID`. The API verifies every delivery against PayPal's webhook-signature verification endpoint before reading or mutating checkout state. The callback is intentionally outside user-session authentication; signature verification is mandatory.
 
+## Channel3 priced-offer discovery
+
+PayPal Catalog is retained for product metadata; Channel3 supplies current product offers and retailer prices. Create a Channel3 developer API key in the [Channel3 dashboard](https://trychannel3.com/dashboard/api) and set it as `CHANNEL3_API_KEY` in the backend environment. The AWS workflow reads the same-named GitHub Actions secret and stores it only in the backend runtime `SecureString`; never expose it to Vite or the browser. Channel3 search uses the saved intent goal, extracted required attributes, budget ceiling, and in-stock filter through `POST https://api.trychannel3.com/v1/search`. Results are filtered and normalized server-side. `GET /api/intents/{intentId}/offers` returns each product/offer with retailer, price/currency, availability, category/attributes when present, offer URL, and retrieval time.
+
+The user explicitly selects an offer. The proposal records its Channel3 product/offer provenance and structured attributes. Before PayPal order creation, the backend looks up the offer URL again and rejects changes to product, retailer, price, currency, stock, category, or attributes. Java policy validation remains the authority for budget and intent constraints. Tax and shipping must be explicitly confirmed; unknown values are blocked rather than defaulted to zero.
+
+Channel3's buy link is a retailer link, not PayPal settlement. The PayPal Sandbox order charges the configured Sandbox merchant and demonstrates buyer approval, capture, and webhooks only; it does not pay the Channel3 retailer or place a retailer order. The UI labels this distinction. Channel3 MCP is optional; the integrated search uses the server API to keep the key private.
+
 Checkout is available only for a proposal that passes a fresh deterministic policy validation as `APPROVE`. The backend creates an itemized PayPal Orders v2 order using the validated total, tax, shipping, and currency. The browser uses PayPal JavaScript SDK v6 to obtain buyer approval; only the approval callback calls the server capture endpoint. The server independently fetches the PayPal order, checks its approval status and the stored intent/proposal/amount/currency binding, then captures with a stable `PayPal-Request-Id`.
 
 `PAYMENT.CAPTURE.COMPLETED` webhook evidence, not the browser or capture response, finalizes an AgentReceipt. Receipt lookup is `GET /api/intents/{intentId}/receipts`. The receipt includes the Intent Contract, proposal snapshots available from validation/repair events, policy violations, repair events, final decision, authoritative PayPal order/capture IDs and status, amount, webhook ID, and activity timeline. Duplicate webhook IDs and duplicate receipt writes are idempotent.
 
-Important Catalog limitation: PayPal Catalog Products stores product metadata (such as product ID, name, and description), not live purchasable offer pricing/availability. It is not a merchant marketplace search endpoint. A separately authorized merchant catalog or product-offer source is needed before a catalog product can become a priced checkout cart. Do not invent a price from Catalog metadata.
+PayPal Catalog Products stores product metadata (such as product ID, name, and description), not live purchasable offer pricing/availability. Channel3 is the product-offer source for priced candidates; do not invent prices or infer missing product attributes, tax, or shipping from either source.
 
 For local development, export `.env` values into the backend shell before starting it:
 
@@ -78,7 +86,9 @@ Use the same request set to compare models: clear laptop request, missing budget
 4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`; checkout state uses `paypal-checkout-v1`; processed webhook IDs use `paypal-webhook-v1`; and unique AgentReceipts use `agent-receipt-v1`.
 5. Create an intent, validate or repair a proposal, and retrieve its activity with `GET /api/intents/{intentId}/events`. With Elastic enabled, confirm contracts, checkout state, events, and receipts remain available after a backend restart. Missing endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
 
-The GitHub Actions deployment accepts `PAYPAL_WEBHOOK_ID` as a GitHub environment variable or secret and writes it into the backend runtime `SecureString` in AWS Systems Manager Parameter Store. PayPal client secrets, webhook ID, and Elastic API key remain server-side; the browser receives only the public PayPal client ID.
+The GitHub Actions deployment accepts `PAYPAL_WEBHOOK_ID` as a GitHub environment variable or secret and writes it into the backend runtime `SecureString` in AWS Systems Manager Parameter Store. `CHANNEL3_API_KEY`, PayPal client secrets, webhook ID, and Elastic API key remain server-side; the browser receives only the public PayPal client ID and non-secret readiness flags.
+
+For AWS, add `CHANNEL3_API_KEY` as a GitHub Actions repository/environment secret. The deployment script writes it only into the backend runtime `SecureString`; it is not a Vite variable or part of frontend assets.
 
 Elastic persistence covers Intent Contracts, decision/repair events, checkout records, processed webhook IDs, and AgentReceipts. Semantic/hybrid search and Agent Builder tools remain Week 4 work.
 
@@ -87,6 +97,7 @@ Elastic persistence covers Intent Contracts, decision/repair events, checkout re
 Do not send any secrets. After you configure accounts, provide only:
 
 - Confirmation that Sandbox REST app credentials are entered locally and the Catalog list call works (or its HTTP status/error identifier).
+- Confirmation that `CHANNEL3_API_KEY` is configured server-side and `GET /api/intents/{intentId}/offers` returns offers with price, currency, retailer, availability, URL, category/attributes when available, and retrieval timestamp. Do not share the key.
 - Confirmation that Log in with PayPal is enabled, plus the exact non-secret Return URL configured in PayPal.
 - Elastic deployment HTTPS endpoint hostname (not its key), whether the API key was entered locally, and whether `intent-v1` and `intent-event-v1` restart persistence checks passed.
 - Whether the `paypal-catalog-readonly` MCP server starts and lists products, without copying its token/output if sensitive.

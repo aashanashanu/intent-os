@@ -149,6 +149,27 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
 .catalog-product p { margin-top: 4px; color: #79837c; font-size: 10px; line-height: 1.45; }
 .catalog-product span { display: block; margin-top: 5px; color: #a0a8a1; font-size: 8px; }
 .catalog-product small { flex: 0 0 auto; padding: 5px 7px; border: 1px solid #e7ebe5; border-radius: 3px; color: #929c93; font-size: 8px; line-height: 1.4; text-align: center; }
+.offer-list { display: grid; gap: 8px; }
+.offer-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px; border: 1px solid #e3e8e1; border-radius: 5px; background: #fff; }
+.offer-row.selected { border-color: #78977e; background: #f5f9f4; }
+.offer-copy { min-width: 0; display: grid; gap: 4px; }
+.offer-copy strong { color: #424d45; font-size: 11px; }
+.offer-copy span, .offer-copy small { color: #818b83; font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.offer-copy a { width: fit-content; display: inline-flex; align-items: center; gap: 3px; color: #53745d; font-size: 9px; font-weight: 600; }
+.offer-price { flex: 0 0 auto; display: grid; justify-items: end; gap: 7px; }
+.offer-price > strong { color: #304938; font-size: 13px; white-space: nowrap; }
+.offer-price .repair-button, .offer-price .secondary-button { margin: 0; }
+.offer-checkout-panel { display: grid; gap: 11px; margin-top: 12px; padding: 13px; border: 1px solid #dce6dc; border-radius: 5px; background: #f8faf7; }
+.offer-checkout-heading { display: grid; gap: 4px; }
+.offer-checkout-heading strong { color: #435448; font-size: 10px; }
+.offer-checkout-heading span, .offer-checkout-panel > p { color: #77837a; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+.offer-cost-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.offer-total { display: flex; align-items: center; justify-content: space-between; padding-top: 9px; border-top: 1px solid #e4eae2; color: #66746a; font-size: 9px; }
+.offer-total strong { color: #304938; font-size: 12px; }
+.sandbox-checkout-note { display: grid; gap: 5px; padding: 10px; border-left: 2px solid #809881; background: #edf3ed; }
+.sandbox-checkout-note > strong { color: #4e6953; font-size: 9px; }
+.sandbox-checkout-note > span { color: #748277; font-size: 9px; line-height: 1.4; }
+.sandbox-checkout-note .checkout-button { margin-top: 4px; }
 .secondary-column { display: grid; gap: 14px; }
 .guardrail-panel, .services-panel { padding: 16px 15px 13px; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; color: #65806d; }
@@ -231,6 +252,10 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
   .quantity-fields { grid-template-columns: 1fr; }
   .policy-toggles { display: grid; gap: 10px; }
   .composer-footer .primary-button { width: 100%; }
+  .offer-row { align-items: flex-start; }
+  .offer-price > strong { font-size: 11px; }
+  .offer-price .repair-button, .offer-price .secondary-button { padding-inline: 6px; font-size: 8px; }
+  .offer-cost-fields { grid-template-columns: 1fr; }
   .draft-state { font-size: 8px; }
   .page-footer { font-size: 7px; }
 }

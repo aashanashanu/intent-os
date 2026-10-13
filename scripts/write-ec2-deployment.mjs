@@ -45,6 +45,7 @@ const environment = {
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
   PAYPAL_WEBHOOK_ID: process.env.PAYPAL_WEBHOOK_ID || '',
+  CHANNEL3_API_KEY: process.env.CHANNEL3_API_KEY || '',
   PAYPAL_LOGIN_CLIENT_ID: process.env.PAYPAL_LOGIN_CLIENT_ID || process.env.PAYPAL_CLIENT_ID,
   PAYPAL_LOGIN_CLIENT_SECRET: process.env.PAYPAL_LOGIN_CLIENT_SECRET || process.env.PAYPAL_CLIENT_SECRET,
   PAYPAL_LOGIN_REDIRECT_URI: `${appUrl.origin}/api/auth/paypal/callback`,

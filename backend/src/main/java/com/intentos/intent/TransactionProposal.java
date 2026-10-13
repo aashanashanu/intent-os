@@ -11,10 +11,17 @@ public record TransactionProposal(
         List<Item> items,
         BigDecimal shipping,
         BigDecimal tax,
-        BigDecimal total) {
+        BigDecimal total,
+        List<OfferEvidence> offerEvidence) {
+
+    public TransactionProposal(String proposalId, String intentId, String currency, List<Item> items,
+            BigDecimal shipping, BigDecimal tax, BigDecimal total) {
+        this(proposalId, intentId, currency, items, shipping, tax, total, List.of());
+    }
 
     public TransactionProposal {
         items = items == null ? List.of() : List.copyOf(items);
+        offerEvidence = offerEvidence == null ? List.of() : List.copyOf(offerEvidence);
     }
 
     public record Item(
