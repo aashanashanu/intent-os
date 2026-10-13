@@ -13,7 +13,7 @@ PayPal Sandbox, PayPal Catalog, PayPal MCP, and Elastic Agent Builder are requir
 - Provision PayPal Sandbox, PayPal Catalog, PayPal MCP, Elastic Cloud, and candidate LLM services.
 - Validate credentials, catalog product retrieval, MCP connectivity and tool availability, and a Sandbox order through buyer approval and capture.
 - Verify webhook delivery feasibility, Elastic indexing/search/Agent Builder availability, and public-hosting options and cost.
-- Compare LLM options for structured output, tool calls, privacy, access, and cost; select one within the budget.
+- Validate Bedrock access, model features, privacy/routing, and current token prices for the configured Nova Micro/Nova Lite roles; estimate actual monthly usage and keep combined hosted-service/model spend within $25.
 - Scaffold the React client and Spring Boot modular monolith, including secrets/configuration handling and basic health checks.
 - Deploy a public health-check page.
 
@@ -21,14 +21,14 @@ PayPal Sandbox, PayPal Catalog, PayPal MCP, and Elastic Agent Builder are requir
 
 ### Week 2: IntentVault and Guarded Agent Loop (20 hours)
 
-- Implement natural-language intent submission and structured Intent Contract generation.
-- Clarify low-confidence or ambiguous intent with the user.
+- Implement natural-language intent submission and structured Intent Contract generation with Nova Micro via Amazon Bedrock Converse. The model may extract explicit facts and suggest clarification; validate its JSON and never treat its response as policy approval.
+- Clarify low-confidence or ambiguous intent with the user; do not fill missing product or budget constraints by guessing.
 - Use products from PayPal Catalog for the laptop demo scenario.
 - Implement candidate proposals and deterministic policy evaluation. At minimum, cover budget, recurring payments, and unrequested add-ons. Add category, required-attribute, merchant, and quantity checks where catalog data supports them.
 - Implement APPROVE, MODIFY, HOLD, and BLOCK outcomes.
 - Add an automatic repair loop capped at three attempts, then request user review.
 - Persist immutable decision/event records and build the live activity, cart, and validation UI.
-- Keep model extraction and repair advisory: deterministic backend policies own the final decision. Do not permit MCP or an agent to bypass validation or capture payment.
+- Use Nova Micro for extraction/explanations and Nova Lite for ambiguity/conflict review and repair advice, with task-specific model IDs supplied by configuration. Treat every model output as advisory. Deterministic Java policies alone own APPROVE, MODIFY, HOLD, and BLOCK, calculate totals, and enforce the payment boundary; the model, MCP, and Elastic Agent Builder must not authorize or execute payments.
 
 **Exit gate:** Integration tests show the intentionally noncompliant proposal is blocked with all three required violations, repaired, revalidated, and approved. Ambiguous intent prompts for clarification; repair exhaustion sends the user to review.
 
@@ -70,7 +70,7 @@ PayPal Sandbox, PayPal Catalog, PayPal MCP, and Elastic Agent Builder are requir
 - Use the PRD-recommended React + TypeScript + Tailwind and Java 21 + Spring Boot stack.
 - Public hosted demo required. Hosted third-party services and account signup are allowed, with a total hosted-service and LLM/API budget of at most $25. Elastic Cloud is acceptable only within that cap.
 - PayPal Catalog is the required product source. PayPal MCP is required in addition to deterministic PayPal REST payment execution. Both must be proven in Week 1.
-- LLM provider remains undecided until a Week 1 access/cost/capability comparison.
+- Use Nova Micro for extraction/explanations and Nova Lite for reasoning/repair suggestions through configurable Bedrock model IDs. Validate account access, AWS IAM, JSON parsing, current pricing, and actual cost before enabling production inference. Nova JSON is prompt-generated and backend-validated rather than constrained by Bedrock schema mode.
 - All PRD MUST HAVE items and acceptance criteria are release gates.
 - Buyer approves PayPal checkout; unclear intent is clarified; after three failed repair attempts, user review is required.
 - If PayPal Sandbox, MCP, or Catalog is blocked after Week 1, pause for access resolution. No unapproved mock or REST-only fallback.

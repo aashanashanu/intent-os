@@ -75,7 +75,7 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 resource "aws_cloudfront_vpc_origin" "backend" {
   vpc_origin_endpoint_config {
     arn                    = var.backend_instance_arn
-    name                   = "${var.project_name}-backend"
+    name                   = "${var.project_name}-backend-${replace(var.backend_private_dns, ".", "-")}"
     http_port              = 8080
     https_port             = 443
     origin_protocol_policy = "http-only"
@@ -84,5 +84,9 @@ resource "aws_cloudfront_vpc_origin" "backend" {
       quantity = 1
       items    = ["TLSv1.2"]
     }
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }

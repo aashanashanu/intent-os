@@ -9,9 +9,10 @@ IntentOS is a trust layer for agentic commerce. It turns explicit purchase const
 - Repair proposals conservatively: clamp configured quantities, remove clearly disallowed extras, and remove optional add-ons to satisfy budget. Unsafe or unresolved changes require user review.
 - Optional PayPal Login using an authorization-code flow, state validation, server-side token exchange, HTTP-only session, and per-user contract access.
 - PayPal Catalog read endpoint and VS Code MCP server restricted to catalog list/detail tools.
-- Optional Elasticsearch persistence for Intent Contracts. In-memory storage is the local default.
+- Optional Elasticsearch persistence for Intent Contracts and append-only decision/repair events. In-memory storage is the local default.
+- Configurable Amazon Bedrock Converse model assignments: Nova Micro for intent extraction and explanation; Nova Lite for reasoning and repair suggestions. Model output is advisory and deterministic Java policies make all purchase decisions.
 
-PayPal checkout/capture, webhooks/AgentReceipts, AI intent extraction, Elastic event/receipt indexing, semantic search, and Elastic Agent Builder are not integrated yet. PayPal Catalog returns product metadata rather than live merchant offers/prices, so a separate offer source is required before building a priced cart.
+PayPal checkout/capture, webhooks/AgentReceipts, shopping-agent offer discovery, Elastic receipt indexing, semantic search, and Elastic Agent Builder are not integrated yet. The shared Bedrock Converse client supports per-task model IDs: extraction with Nova Micro, ambiguity/conflict review and repair advice with Nova Lite, and event-grounded explanations with Nova Micro. Model suggestions are advisory; Java policy validation remains authoritative. Nova currently produces prompted JSON rather than Bedrock constrained structured output, so the backend validates the response and fails closed if it is invalid. PayPal Catalog returns product metadata rather than live merchant offers/prices, so a separate offer source is required before building a priced cart.
 
 ## Requirements
 
@@ -57,7 +58,7 @@ npm --prefix frontend run lint
 
 ## Integration setup
 
-See [docs/integrations.md](docs/integrations.md) for PayPal Sandbox, Catalog, Login, the read-only MCP server, and Elastic Cloud configuration. PayPal client secrets and Elastic API keys remain server-side.
+See [docs/integrations.md](docs/integrations.md) for PayPal Sandbox, Catalog, Login, the read-only MCP server, Elastic Cloud, and Amazon Bedrock configuration. PayPal client secrets and Elastic API keys remain server-side; Bedrock uses local AWS credentials or the EC2 instance role.
 
 For a public PayPal Login callback without managing a domain or DNS, follow [docs/aws-deployment.md](docs/aws-deployment.md). It serves the frontend from private S3 through CloudFront and deploys the backend to EC2 through GitHub Actions and Systems Manager.
 

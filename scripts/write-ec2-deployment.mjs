@@ -50,6 +50,13 @@ const environment = {
   INTENTOS_ELASTIC_ENABLED: process.env.INTENTOS_ELASTIC_ENABLED || 'false',
   INTENTOS_ELASTIC_URL: process.env.INTENTOS_ELASTIC_URL || '',
   INTENTOS_ELASTIC_API_KEY: process.env.INTENTOS_ELASTIC_API_KEY || '',
+  INTENTOS_LLM_ENABLED: process.env.INTENTOS_LLM_ENABLED || 'true',
+  INTENTOS_LLM_REGION: process.env.INTENTOS_LLM_REGION || process.env.AWS_REGION,
+  INTENTOS_LLM_MODEL_EXTRACTION: process.env.INTENTOS_LLM_MODEL_EXTRACTION || 'amazon.nova-micro-v1:0',
+  INTENTOS_LLM_MODEL_REASONING: process.env.INTENTOS_LLM_MODEL_REASONING || 'amazon.nova-lite-v1:0',
+  INTENTOS_LLM_MODEL_REPAIR: process.env.INTENTOS_LLM_MODEL_REPAIR || 'amazon.nova-lite-v1:0',
+  INTENTOS_LLM_MODEL_EXPLANATION: process.env.INTENTOS_LLM_MODEL_EXPLANATION || 'amazon.nova-micro-v1:0',
+  INTENTOS_LLM_MAX_TOKENS: process.env.INTENTOS_LLM_MAX_TOKENS || '700',
 };
 
 for (const [key, value] of Object.entries(environment)) {

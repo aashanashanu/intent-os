@@ -41,6 +41,7 @@ type RepairResult = {
     items: Array<{ name: string; quantity: number; unitPrice: number }>
   }
   explanation: string
+  modelAdvice?: string | null
 }
 
 type AuthSession = {
@@ -64,6 +65,37 @@ type CatalogProduct = {
   description?: string
 }
 
+type IntentExtraction = {
+  goal: string | null
+  maxAmount: number | null
+  currency: string
+  allowedCategories: string[]
+  requiredAttributes: Record<string, string>
+  allowRecurringPayments: boolean
+  allowSubscriptions: boolean
+  allowUnrequestedAddons: boolean
+  needsClarification: boolean
+  clarificationQuestions: string[]
+}
+
+type PolicyCheck = {
+  decision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
+  calculatedTotal: number
+  violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
+  recommendations: string[]
+}
+
+type DecisionEvent = {
+  eventId: string
+  proposalId: string
+  occurredAt: string
+  eventType: string
+  decision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
+  calculatedTotal: number
+  violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
+  message: string
+}
+
 function App() {
   const loginError = new URLSearchParams(window.location.search).get('paypalLoginError')
   const loginParams = new URLSearchParams(window.location.search)
@@ -79,6 +111,10 @@ function App() {
   const [request, setRequest] = useState('')
   const [goal, setGoal] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
+  const [draftCategories, setDraftCategories] = useState<string[]>([])
+  const [draftRequiredAttributes, setDraftRequiredAttributes] = useState<Record<string, string>>({})
+  const [extracting, setExtracting] = useState(false)
+  const [extractionNeedsClarification, setExtractionNeedsClarification] = useState(false)
   const [limitedItemName, setLimitedItemName] = useState('')
   const [itemQuantityLimit, setItemQuantityLimit] = useState('')
   const [allowRecurringPayments, setAllowRecurringPayments] = useState(false)
@@ -88,6 +124,11 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [repairing, setRepairing] = useState(false)
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
+  const [initialPolicyCheck, setInitialPolicyCheck] = useState<PolicyCheck | null>(null)
+  const [finalPolicyCheck, setFinalPolicyCheck] = useState<PolicyCheck | null>(null)
+  const [activityEvents, setActivityEvents] = useState<DecisionEvent[]>([])
+  const [modelExplanation, setModelExplanation] = useState('')
+  const [explanationLoading, setExplanationLoading] = useState(false)
   const [notice, setNotice] = useState(() => loginError === 'access_denied'
     ? 'PayPal sign-in was cancelled or not approved. Check the Sandbox buyer account and try again.'
     : loginError
@@ -160,8 +201,8 @@ function App() {
           maximumQuantities: limitedItemName.trim() && itemQuantityLimit
             ? { [limitedItemName.trim()]: Number(itemQuantityLimit) }
             : {},
-          allowedCategories: [],
-          requiredAttributes: {},
+          allowedCategories: draftCategories,
+          requiredAttributes: draftRequiredAttributes,
           preferredAttributes: {},
           prohibitedItems: [],
           merchantRestrictions: [],
@@ -171,7 +212,10 @@ function App() {
       const createdIntent = await response.json() as IntentContract
       setActiveIntent(createdIntent)
       setRepairResult(null)
-      setNotice(`Contract ${createdIntent.intentId} saved. AI extraction is not connected yet.`)
+      setInitialPolicyCheck(null)
+      setFinalPolicyCheck(null)
+      setActivityEvents([])
+      setNotice(`Contract ${createdIntent.intentId} saved. Deterministic policy validation is ready.`)
       setNoticeKind('success')
       setRequest('')
       setGoal('')
@@ -180,6 +224,38 @@ function App() {
       setNoticeKind('error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function extractIntent() {
+    if (!request.trim()) return
+    setExtracting(true)
+    setNotice('')
+    try {
+      const response = await fetch('/api/intents/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        body: JSON.stringify({ naturalLanguageRequest: request.trim() }),
+      })
+      if (!response.ok) throw new Error(response.status === 401 ? 'Sign in with PayPal to draft an intent.' : 'Could not extract the intent draft.')
+      const draft = await response.json() as IntentExtraction
+      if (draft.goal) setGoal(draft.goal)
+      if (draft.maxAmount !== null) setMaxAmount(String(draft.maxAmount))
+      setDraftCategories(draft.allowedCategories)
+      setDraftRequiredAttributes(draft.requiredAttributes)
+      setAllowRecurringPayments(draft.allowRecurringPayments)
+      setAllowSubscriptions(draft.allowSubscriptions)
+      setAllowUnrequestedAddons(draft.allowUnrequestedAddons)
+      setExtractionNeedsClarification(draft.needsClarification)
+      setNotice(draft.needsClarification
+        ? `Please clarify: ${draft.clarificationQuestions.join(' ')}`
+        : 'Draft extracted. Review the fields and permissions before creating the contract.')
+      setNoticeKind(draft.needsClarification ? 'error' : 'success')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not extract the intent draft.')
+      setNoticeKind('error')
+    } finally {
+      setExtracting(false)
     }
   }
 
@@ -194,10 +270,18 @@ function App() {
     setAllowUnrequestedAddons(false)
   }
 
+  async function refreshIntentActivity(intentId: string) {
+    const response = await fetch(`/api/intents/${intentId}/events`)
+    if (response.ok) setActivityEvents(await response.json() as DecisionEvent[])
+  }
+
   async function runRepair() {
     if (!activeIntent) return
     setRepairing(true)
     setNotice('')
+    setRepairResult(null)
+    setInitialPolicyCheck(null)
+    setFinalPolicyCheck(null)
     try {
       const proposal = {
         proposalId: `PROP-${crypto.randomUUID()}`,
@@ -212,13 +296,41 @@ function App() {
         tax: 72,
         total: 1249,
       }
+      const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
+      const initialResponse = await fetch(`/api/intents/${activeIntent.intentId}/validation`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(proposal),
+      })
+      if (!initialResponse.ok) throw new Error('The policy check failed. Check the API and try again.')
+      const initialCheck = await initialResponse.json() as PolicyCheck
+      setInitialPolicyCheck(initialCheck)
+      await refreshIntentActivity(activeIntent.intentId)
+      if (initialCheck.decision === 'HOLD') {
+        setNotice('This intent needs clarification before its proposal can be repaired.')
+        setNoticeKind('error')
+        return
+      }
+
       const response = await fetch(`/api/intents/${activeIntent.intentId}/repair`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        headers,
         body: JSON.stringify(proposal),
       })
       if (!response.ok) throw new Error('The repair request failed. Check the API and try again.')
-      setRepairResult(await response.json() as RepairResult)
+      const result = await response.json() as RepairResult
+      setRepairResult(result)
+
+      const finalResponse = await fetch(`/api/intents/${activeIntent.intentId}/validation`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(result.proposal),
+      })
+      if (!finalResponse.ok) throw new Error('The repaired proposal could not be revalidated.')
+      setFinalPolicyCheck(await finalResponse.json() as PolicyCheck)
+      await refreshIntentActivity(activeIntent.intentId)
+      const eventsResponse = await fetch(`/api/intents/${activeIntent.intentId}/events`)
+      if (eventsResponse.ok) setActivityEvents(await eventsResponse.json() as DecisionEvent[])
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not run proposal repair.')
       setNoticeKind('error')
@@ -242,6 +354,25 @@ function App() {
       setCatalogMessage(error instanceof Error ? error.message : 'Could not load the catalog.')
     } finally {
       setCatalogLoading(false)
+    }
+  }
+
+  async function explainDecision() {
+    if (!activeIntent || activityEvents.length === 0) return
+    setExplanationLoading(true)
+    setModelExplanation('')
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/explanation`)
+      if (!response.ok) throw new Error(response.status === 503
+        ? 'Decision explanation is unavailable. Check Bedrock access.'
+        : 'Could not explain the recorded decision.')
+      const result = await response.json() as { explanation: string }
+      setModelExplanation(result.explanation)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not explain the recorded decision.')
+      setNoticeKind('error')
+    } finally {
+      setExplanationLoading(false)
     }
   }
 
@@ -309,11 +440,21 @@ function App() {
                 <div className="section-heading">
                   <div className="section-icon"><Fingerprint size={18} /></div>
                   <div><h2>New intent contract</h2><p>Set the goal and payment boundaries explicitly.</p></div>
-                  <span className="draft-label">MANUAL</span>
+                  <span className="draft-label">DRAFT</span>
                 </div>
                 <form onSubmit={saveIntent}>
                   <label className="sr-only" htmlFor="intent-request">Describe the purchase you want your agent to make</label>
-                  <textarea id="intent-request" value={request} onChange={(event) => setRequest(event.target.value)} placeholder={'For example: “Find a development laptop under $1,000. No subscriptions.”'} rows={3} />
+                  <textarea id="intent-request" value={request} onChange={(event) => {
+                    setRequest(event.target.value)
+                    setGoal('')
+                    setMaxAmount('')
+                    setDraftCategories([])
+                    setDraftRequiredAttributes({})
+                    setExtractionNeedsClarification(false)
+                    setAllowRecurringPayments(false)
+                    setAllowSubscriptions(false)
+                    setAllowUnrequestedAddons(false)
+                  }} placeholder={'For example: “Find a development laptop under $1,000. No subscriptions.”'} rows={3} />
                   <div className="intent-fields">
                     <label className="form-field"><span>Goal</span><input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Development laptop" required /></label>
                     <label className="form-field budget-field"><span>Maximum total <small>USD</small></span><input type="number" min="0.01" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="1,000.00" required /></label>
@@ -330,24 +471,24 @@ function App() {
                   </fieldset>
                   <div className="composer-footer">
                     <span className="composer-hint"><LockKeyhole size={13} />Stored in server memory for this session</span>
-                    <button className="primary-button" type="submit" disabled={!request.trim() || !goal.trim() || !maxAmount || saving}><Plus size={16} />{saving ? 'Saving contract…' : 'Create intent contract'}</button>
+                    <button className="secondary-button" type="button" onClick={extractIntent} disabled={!request.trim() || extracting}><Sparkles size={15} />{extracting ? 'Drafting…' : 'Draft from request'}</button>
+                    <button className="primary-button" type="submit" disabled={!request.trim() || !goal.trim() || !maxAmount || saving || extractionNeedsClarification}><Plus size={16} />{saving ? 'Saving contract…' : 'Create intent contract'}</button>
                   </div>
                 </form>
                 {notice && <p className={`notice ${noticeKind}`} role="status"><Check size={14} />{notice}</p>}
                 {activeIntent && <article className="saved-contract"><div className="draft-row"><div className="draft-status"><ShieldCheck size={15} /></div><div className="draft-copy"><p>{activeIntent.goal}</p><span>{activeIntent.intentId} · In-memory contract</span></div><strong className="contract-budget">${activeIntent.maxAmount.toFixed(2)}</strong></div><button className="repair-button" onClick={runRepair} disabled={repairing}><ShieldCheck size={14} />{repairing ? 'Checking and repairing…' : 'Run sample proposal repair'}</button></article>}
-                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired and approved' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p><div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No PayPal Catalog item was used and no payment was created.</small></div>}
+                {initialPolicyCheck && <div className={`validation-result ${initialPolicyCheck.decision === 'APPROVE' ? 'approved' : initialPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Initial validation · {initialPolicyCheck.decision}</strong><span>Calculated ${initialPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{initialPolicyCheck.violations.length > 0 ? <ul>{initialPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
+                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p>{repairResult.modelAdvice && <p className="model-advice"><strong>Model suggestion · advisory</strong><span>{repairResult.modelAdvice}</span></p>}<div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No PayPal Catalog item was used and no payment was created.</small></div>}
+                {finalPolicyCheck && <div className={`validation-result ${finalPolicyCheck.decision === 'APPROVE' ? 'approved' : finalPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Revalidation · {finalPolicyCheck.decision}</strong><span>Calculated ${finalPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{finalPolicyCheck.violations.length > 0 ? <ul>{finalPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
               </section>
 
               <section className="activity-section" id="activity">
                 <div className="section-heading activity-heading">
                   <div><h2>Recent activity</h2><p>Decision events across your agents</p></div>
-                  <button className="text-button" disabled>View timeline <ArrowUpRight size={15} /></button>
+                  <button className="text-button" onClick={explainDecision} disabled={!activeIntent || activityEvents.length === 0 || explanationLoading}><Sparkles size={14} />{explanationLoading ? 'Explaining…' : 'Explain decision'}</button>
                 </div>
-                <div className="empty-activity">
-                  <div className="empty-glyph"><Activity size={20} /></div>
-                  <strong>No agent activity yet</strong>
-                  <span>Approved proposals and policy checks will appear here.</span>
-                </div>
+                {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No agent activity yet</strong><span>Validated proposals and repair decisions will appear here.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.proposalId} · ${event.calculatedTotal.toFixed(2)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><small>{event.message}</small>{event.violations.length > 0 && <small>{event.violations.map((violation) => violation.type.replaceAll('_', ' ')).join(' · ')}</small>}</div></article>)}</div>}
+                {modelExplanation && <p className="model-explanation" role="status"><strong>Evidence-based explanation</strong>{modelExplanation}</p>}
               </section>
 
               <section className="activity-section catalog-section" id="catalog">
@@ -357,7 +498,13 @@ function App() {
                 </div>
                 {!integrations?.paypalCatalogConfigured && <div className="catalog-empty">Add PayPal Sandbox app credentials to `.env` to browse catalog metadata.</div>}
                 {integrations?.paypalCatalogConfigured && catalogMessage && <div className="catalog-empty" role="status">{catalogMessage}</div>}
-                {catalogProducts.length > 0 && <div className="catalog-list">{catalogProducts.map((product) => <article className="catalog-product" key={product.id}><div><strong>{product.name}</strong><p>{product.description || 'No description provided.'}</p><span>Product ID · {product.id}</span></div><small>Metadata only<br />No offer price</small></article>)}</div>}
+                {catalogProducts.length > 0 && <div className="catalog-list">{catalogProducts.map((product) => {
+                  const isLaptop = /laptop|notebook/i.test(product.name)
+                  return <article className="catalog-product" key={product.id}>
+                    <div><strong>{product.name}</strong><p>{product.description || 'No description provided.'}</p><span>Product ID · {product.id}</span></div>
+                    <small>{isLaptop ? <>DEMO ESTIMATE<br />$899.00 USD<br />Not an offer</> : <>Metadata only<br />No offer price</>}</small>
+                  </article>
+                })}</div>}
               </section>
             </div>
 

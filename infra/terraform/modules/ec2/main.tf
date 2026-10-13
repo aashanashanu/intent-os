@@ -66,6 +66,22 @@ resource "aws_iam_role_policy" "deploy_read" {
   })
 }
 
+resource "aws_iam_role_policy" "bedrock_models" {
+  name = "${var.project_name}-bedrock-intent-models"
+  role = aws_iam_role.instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["bedrock:InvokeModel"]
+      Resource = [
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova-*"
+      ]
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "instance" {
   name = "${var.project_name}-instance-profile"
   role = aws_iam_role.instance.name

@@ -79,6 +79,13 @@ jobs:
           INTENTOS_ELASTIC_ENABLED: ${{ vars.INTENTOS_ELASTIC_ENABLED || 'false' }}
           INTENTOS_ELASTIC_URL: ${{ vars.INTENTOS_ELASTIC_URL || '' }}
           INTENTOS_ELASTIC_API_KEY: ${{ secrets.INTENTOS_ELASTIC_API_KEY }}
+          INTENTOS_LLM_ENABLED: ${{ vars.INTENTOS_LLM_ENABLED || 'true' }}
+          INTENTOS_LLM_REGION: ${{ vars.INTENTOS_LLM_REGION || vars.AWS_REGION || 'us-east-1' }}
+          INTENTOS_LLM_MODEL_EXTRACTION: ${{ vars.INTENTOS_LLM_MODEL_EXTRACTION || 'amazon.nova-micro-v1:0' }}
+          INTENTOS_LLM_MODEL_REASONING: ${{ vars.INTENTOS_LLM_MODEL_REASONING || 'amazon.nova-lite-v1:0' }}
+          INTENTOS_LLM_MODEL_REPAIR: ${{ vars.INTENTOS_LLM_MODEL_REPAIR || 'amazon.nova-lite-v1:0' }}
+          INTENTOS_LLM_MODEL_EXPLANATION: ${{ vars.INTENTOS_LLM_MODEL_EXPLANATION || 'amazon.nova-micro-v1:0' }}
+          INTENTOS_LLM_MAX_TOKENS: ${{ vars.INTENTOS_LLM_MAX_TOKENS || '700' }}
         run: node scripts/write-ec2-deployment.mjs
 
       - name: Store backend runtime secrets in Parameter Store

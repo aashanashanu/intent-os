@@ -4,15 +4,22 @@ import com.intentos.intent.IntentContract;
 import com.intentos.intent.TransactionProposal;
 import com.intentos.intent.TransactionProposal.Item;
 import com.intentos.validation.IntentPolicyValidator;
+import com.intentos.validation.PolicyViolation;
+import com.intentos.validation.ValidationDecision;
+import com.intentos.validation.ValidationResult;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class IntentRepairServiceTest {
     private final IntentRepairService repairService = new IntentRepairService(new IntentPolicyValidator());
@@ -69,6 +76,33 @@ class IntentRepairServiceTest {
 
         assertEquals(RepairStatus.NEEDS_USER_REVIEW, result.status());
         assertEquals(0, result.attempts());
+    }
+
+    @Test
+    void stopsAfterThreeRepairPassesAndRequestsUserReview() {
+        IntentPolicyValidator validator = mock(IntentPolicyValidator.class);
+        AtomicInteger validationCount = new AtomicInteger();
+        List<String> addOnNames = List.of("Extra One", "Extra Two", "Extra Three", "Extra Four");
+        when(validator.validate(any(IntentContract.class), any(TransactionProposal.class))).thenAnswer(invocation -> {
+            String remainingAddOn = addOnNames.get(validationCount.getAndIncrement());
+            return new ValidationResult(ValidationDecision.BLOCK, new BigDecimal("552"),
+                    List.of(new PolicyViolation("UNREQUESTED_ADDON", remainingAddOn, "requested item", "add-on")),
+                    List.of(), "Remove the unrequested add-on.");
+        });
+        TransactionProposal proposal = proposal(
+                item("Developer Laptop", "400", false, false, false),
+                item("Extra One", "20", false, false, true),
+                item("Extra Two", "20", false, false, true),
+                item("Extra Three", "20", false, false, true),
+                item("Extra Four", "20", false, false, true));
+
+        RepairResult result = new IntentRepairService(validator).repair(intent(new BigDecimal("1000"), Map.of()), proposal);
+
+        assertEquals(RepairStatus.NEEDS_USER_REVIEW, result.status());
+        assertEquals(IntentRepairService.MAX_ATTEMPTS, result.attempts());
+        assertEquals(IntentRepairService.MAX_ATTEMPTS + 1, result.history().size());
+        assertEquals("Repair limit reached.", result.history().getLast().action());
+        assertEquals(4, validationCount.get());
     }
 
     private static IntentContract intent(BigDecimal maximum, Map<String, Integer> quantityLimits) {

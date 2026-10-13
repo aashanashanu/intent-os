@@ -311,7 +311,11 @@ approvalPolicy
 
 # 9. Intent Extraction AI
 
-The AI converts natural language into structured intent.
+Use configurable Amazon Bedrock Converse model assignments: **Nova Micro** for Intent extraction and explanation generation, and **Nova Lite** for intent reasoning and cart-repair suggestions. The model converts natural language into a structured Intent Contract draft and suggests clarification questions. The backend validates the response before presenting it for user review. Nova does not support Bedrock constrained JSON output, so generated JSON must be parsed and validated server-side; invalid output fails closed. Model output is advisory; it is not a policy decision.
+
+The target architecture uses configurable task-specific Bedrock model IDs for Intent extraction, Shopping Agent candidate generation, intent reasoning, cart-repair suggestions, and explanation generation. Defaults are Nova Micro for extraction/explanations and Nova Lite for reasoning/repair advice. These are model proposals only: Java/Spring Boot validates all proposals, controls the payment authorization boundary, and orchestrates PayPal APIs, webhooks, idempotency, and security. Amazon Bedrock uses the backend AWS credential chain; model credentials never enter the browser. Current implementation includes extraction, ambiguity/conflict review, repair advice, and explanations grounded in persisted event evidence; Shopping Agent candidate generation remains planned.
+
+Elastic Agent Builder is the separate receipt-analysis and historical-search layer, grounded in persisted AgentReceipt evidence. PayPal MCP/Agent Toolkit is the PayPal interaction/tool layer and must not bypass the deterministic payment boundary. The current implementation wires Bedrock for extraction only; shopping-agent generation, LLM repair advice, and explanation generation remain planned integrations.
 
 ### Input
 
@@ -346,7 +350,7 @@ Confidence:
 
 # 10. Intent Clarification
 
-If the AI cannot confidently determine intent, IntentOS should ask a clarification question.
+If the model cannot confidently determine intent, IntentOS should ask a clarification question. Missing or ambiguous values must not be invented.
 
 Example:
 
@@ -1206,8 +1210,9 @@ LLMs should NOT be responsible for:
 - changing transaction state
 - processing webhook events
 - determining whether a PayPal capture event occurred
+- deciding or bypassing deterministic policy approval
 
-Those should be deterministic workflows.
+Those should be deterministic workflows and backend policies. Nova Micro/Lite may propose extraction, candidate products, repair suggestions, and explanations; Spring Boot policy validation remains the authority for APPROVE, MODIFY, HOLD, and BLOCK.
 
 Elastic Workflows can orchestrate repeatable actions and can be triggered from agents.
 
@@ -2354,7 +2359,7 @@ Finds:
 ```text
 Laptop        $899
 Warranty      $199
-Antivirus      $79/year
+Subscription $79/year
 ```
 
 ## IntentOS

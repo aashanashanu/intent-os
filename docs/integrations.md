@@ -34,10 +34,34 @@ It does not enable product create/update, order create/capture, payments, refund
 
 Node.js 18+ and network access to npm and PayPal Sandbox are required. In VS Code, open the MCP server picker and start `paypal-catalog-readonly`. Check the PayPal Developer Dashboard/API logs if the server cannot obtain a token; do not paste the secret into logs or issues.
 
+## Amazon Bedrock intent extraction
+
+The backend uses Amazon Bedrock Converse with model IDs configured per task: Nova Micro for intent extraction and explanation, and Nova Lite for intent reasoning and cart-repair suggestions. Extraction and ambiguity/conflict review are used by the draft endpoint; repair suggestions accompany deterministic repair results; explanations use persisted intent/event evidence. Java policy validation remains authoritative for APPROVE, MODIFY, HOLD, and BLOCK; model output cannot create PayPal orders, authorize payments, or capture funds. Shopping-agent candidate generation is not yet wired.
+
+The defaults use `amazon.nova-micro-v1:0` and `amazon.nova-lite-v1:0` in `us-east-1`. The Terraform EC2 role is scoped to invoke those two Nova foundation models in that region. Model availability and pricing can change; verify model access in the Bedrock console before enabling inference.
+
+Nova Micro and Nova Lite do not currently support Bedrock constrained structured output. The extraction prompt requests JSON, then the backend parses and validates required fields, types, USD currency, confidence, and clarification state. Malformed output returns an error; there is no rule-based fallback.
+
+For local use, configure AWS SDK credentials through an AWS profile or environment/SSO credentials with `bedrock:InvokeModel` permission. Do not put AWS credentials in Vite variables or frontend code. In `.env`, set:
+
+```dotenv
+INTENTOS_LLM_ENABLED=true
+INTENTOS_LLM_REGION=us-east-1
+INTENTOS_LLM_MODEL_EXTRACTION=amazon.nova-micro-v1:0
+INTENTOS_LLM_MODEL_REASONING=amazon.nova-lite-v1:0
+INTENTOS_LLM_MODEL_REPAIR=amazon.nova-lite-v1:0
+INTENTOS_LLM_MODEL_EXPLANATION=amazon.nova-micro-v1:0
+INTENTOS_LLM_MAX_TOKENS=700
+```
+
+The AWS deployment uses the EC2 instance role; no Bedrock API key is needed. Apply the Terraform IAM policy update before enabling `INTENTOS_LLM_ENABLED` in the GitHub `main` environment variables. GitHub Actions stores the non-secret model settings in the SSM SecureString runtime configuration; invocation uses the instance role credentials. Override each `INTENTOS_LLM_MODEL_*` deployment variable to change a task's model without changing Java code; update IAM permissions if the replacement model requires different resource ARNs.
+
+Use the same request set to compare models: clear laptop request, missing budget, multiple possible categories, explicit RAM, and conflicting payment permissions. Measure schema validity, supported facts, clarification behavior, latency, and actual token usage. Never use the model's response as authorization evidence or as a substitute for deterministic backend validation.
+
 ## Elastic Cloud persistence
 
 1. In [Elastic Cloud](https://cloud.elastic.co/), create/open a deployment with Elasticsearch and Kibana. Confirm the required Agent Builder/Search features are available in the subscription/trial attached to that deployment.
-2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the IntentOS index operations. Keep the encoded API key private.
+2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the `intent-v1` and `intent-event-v1` indexes. It needs document read/write privileges on both indexes. Keep the encoded API key private.
 3. Set these backend variables locally:
 
    ```dotenv
@@ -46,10 +70,10 @@ Node.js 18+ and network access to npm and PayPal Sandbox are required. In VS Cod
    INTENTOS_ELASTIC_API_KEY=your-encoded-api-key
    ```
 
-4. Restart the backend. Intent Contract writes and reads use `intent-v1`; list is sorted by `createdAt`. When Elastic is disabled, the app uses process-memory storage instead.
-5. Validate by creating an intent, restarting the backend, and retrieving it. A missing endpoint/key while Elastic is enabled is a startup error by design.
+4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`. When Elastic is disabled, both use process-memory storage.
+5. Create an intent, validate or repair a proposal, and retrieve its activity with `GET /api/intents/{intentId}/events`. With Elastic enabled, confirm the contract and events remain available after a backend restart. Missing endpoint/key while Elastic is enabled is a startup error by design.
 
-Current Elastic persistence scope is Intent Contracts only. Proposals, decisions, events, PayPal transactions, AgentReceipts, semantic search, and Agent Builder tools have not been integrated yet.
+Elastic persistence covers Intent Contracts and intent decision/repair events. Proposals, PayPal transactions, AgentReceipts, semantic search, and Agent Builder tools have not been integrated yet.
 
 ## Required values to finish live-provider verification
 
@@ -57,5 +81,5 @@ Do not send any secrets. After you configure accounts, provide only:
 
 - Confirmation that Sandbox REST app credentials are entered locally and the Catalog list call works (or its HTTP status/error identifier).
 - Confirmation that Log in with PayPal is enabled, plus the exact non-secret Return URL configured in PayPal.
-- Elastic deployment HTTPS endpoint hostname (not its key), whether the API key was entered locally, and whether the `intent-v1` restart persistence check passed.
+- Elastic deployment HTTPS endpoint hostname (not its key), whether the API key was entered locally, and whether `intent-v1` and `intent-event-v1` restart persistence checks passed.
 - Whether the `paypal-catalog-readonly` MCP server starts and lists products, without copying its token/output if sensitive.
