@@ -11,6 +11,11 @@ Never post credentials in chat, commit them, or place them in frontend variables
 5. Set `PAYPAL_LOGIN_REDIRECT_URI` to exactly the same Return URL. The AWS GitHub Actions workflow sets it from `PUBLIC_APP_URL`. The Login implementation uses the Sandbox authorization endpoint, exchanges the authorization code server-side, fetches the OpenID Connect profile, validates OAuth `state`, rotates the session ID, and stores the PayPal user ID in an HTTP-only session.
 6. Keep `INTENTOS_AUTH_REQUIRED=false` until Login is configured and tested. Then set it to `true`, restart the backend, open the app, and choose **Sign in with PayPal**. Protected intent/catalog routes return 401 without a valid session; records are scoped to the authenticated PayPal user.
 7. The backend Catalog endpoint is `GET /api/catalog/products?page=1&pageSize=20`. It requests an OAuth client-credentials token server-side and calls PayPal Catalog Products v1 `GET /v1/catalogs/products`. Page size is limited to 20.
+8. In the PayPal app's Sandbox **Webhooks** settings, register `https://<cloudfront-host>.cloudfront.net/api/webhooks/paypal` (or `http://localhost:8080/api/webhooks/paypal` locally) for `PAYMENT.CAPTURE.COMPLETED`. Store the resulting webhook ID as `PAYPAL_WEBHOOK_ID`. The API verifies every delivery against PayPal's webhook-signature verification endpoint before reading or mutating checkout state. The callback is intentionally outside user-session authentication; signature verification is mandatory.
+
+Checkout is available only for a proposal that passes a fresh deterministic policy validation as `APPROVE`. The backend creates an itemized PayPal Orders v2 order using the validated total, tax, shipping, and currency. The browser uses PayPal JavaScript SDK v6 to obtain buyer approval; only the approval callback calls the server capture endpoint. The server independently fetches the PayPal order, checks its approval status and the stored intent/proposal/amount/currency binding, then captures with a stable `PayPal-Request-Id`.
+
+`PAYMENT.CAPTURE.COMPLETED` webhook evidence, not the browser or capture response, finalizes an AgentReceipt. Receipt lookup is `GET /api/intents/{intentId}/receipts`. The receipt includes the Intent Contract, proposal snapshots available from validation/repair events, policy violations, repair events, final decision, authoritative PayPal order/capture IDs and status, amount, webhook ID, and activity timeline. Duplicate webhook IDs and duplicate receipt writes are idempotent.
 
 Important Catalog limitation: PayPal Catalog Products stores product metadata (such as product ID, name, and description), not live purchasable offer pricing/availability. It is not a merchant marketplace search endpoint. A separately authorized merchant catalog or product-offer source is needed before a catalog product can become a priced checkout cart. Do not invent a price from Catalog metadata.
 
@@ -61,7 +66,7 @@ Use the same request set to compare models: clear laptop request, missing budget
 ## Elastic Cloud persistence
 
 1. In [Elastic Cloud](https://cloud.elastic.co/), create/open a deployment with Elasticsearch and Kibana. Confirm the required Agent Builder/Search features are available in the subscription/trial attached to that deployment.
-2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the `intent-v1` and `intent-event-v1` indexes. It needs document read/write privileges on both indexes. Keep the encoded API key private.
+2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the `intent-v1`, `intent-event-v1`, `paypal-checkout-v1`, `paypal-webhook-v1`, and `agent-receipt-v1` indexes. It needs document read/write privileges on those indexes. Keep the encoded API key private.
 3. Set these backend variables locally:
 
    ```dotenv
@@ -70,10 +75,12 @@ Use the same request set to compare models: clear laptop request, missing budget
    INTENTOS_ELASTIC_API_KEY=your-encoded-api-key
    ```
 
-4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`. When Elastic is disabled, both use process-memory storage.
-5. Create an intent, validate or repair a proposal, and retrieve its activity with `GET /api/intents/{intentId}/events`. With Elastic enabled, confirm the contract and events remain available after a backend restart. Missing endpoint/key while Elastic is enabled is a startup error by design.
+4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`; checkout state uses `paypal-checkout-v1`; processed webhook IDs use `paypal-webhook-v1`; and unique AgentReceipts use `agent-receipt-v1`.
+5. Create an intent, validate or repair a proposal, and retrieve its activity with `GET /api/intents/{intentId}/events`. With Elastic enabled, confirm contracts, checkout state, events, and receipts remain available after a backend restart. Missing endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
 
-Elastic persistence covers Intent Contracts and intent decision/repair events. Proposals, PayPal transactions, AgentReceipts, semantic search, and Agent Builder tools have not been integrated yet.
+The GitHub Actions deployment accepts `PAYPAL_WEBHOOK_ID` as a GitHub environment variable or secret and writes it into the backend runtime `SecureString` in AWS Systems Manager Parameter Store. PayPal client secrets, webhook ID, and Elastic API key remain server-side; the browser receives only the public PayPal client ID.
+
+Elastic persistence covers Intent Contracts, decision/repair events, checkout records, processed webhook IDs, and AgentReceipts. Semantic/hybrid search and Agent Builder tools remain Week 4 work.
 
 ## Required values to finish live-provider verification
 

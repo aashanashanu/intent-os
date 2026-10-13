@@ -102,6 +102,10 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
 .repair-result { margin-top: 14px; padding: 12px; border: 1px solid #dfe8df; border-radius: 4px; background: #f7faf6; }
 .repair-result.review { border-color: #eddcc1; background: #fcf9f2; }
 .repair-result.approved { border-color: #d6e6d8; background: #f5faf5; }
+.checkout-button { width: 100%; margin-top: 12px; }
+.capture-confirmation { display: grid; gap: 4px; margin-top: 12px; padding: 10px 12px; border-left: 2px solid #4d8c65; background: #edf5ef; }
+.capture-confirmation strong { color: #356447; font-size: 10px; }
+.capture-confirmation span { color: #6f8374; font-size: 9px; overflow-wrap: anywhere; }
 .repair-result > p { margin-top: 6px; color: #738077; font-size: 9px; line-height: 1.45; }
 .model-advice { display: grid; gap: 3px; margin-top: 8px; padding-left: 8px; border-left: 2px solid #c8d5ca; }
 .model-advice strong { color: #758078; font-size: 8px; text-transform: uppercase; }
@@ -123,6 +127,10 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
 .empty-activity strong { color: #59635c; font-size: 11px; font-weight: 600; }
 .empty-activity span { margin-top: 4px; color: #99a19b; font-size: 10px; }
 .event-list { border-top: 1px solid #e3e7e2; border-bottom: 1px solid #e3e7e2; }
+.receipt-list { border-top: 1px solid #e3e7e2; border-bottom: 1px solid #e3e7e2; }
+.receipt-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 2px; border-bottom: 1px solid #edf0ec; }
+.receipt-row:last-child { border-bottom: 0; }
+.receipt-row .event-copy small { overflow-wrap: anywhere; }
 .event-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 2px; border-bottom: 1px solid #edf0ec; }
 .event-row:last-child { border-bottom: 0; }
 .event-indicator { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #577961; background: #edf4ed; }

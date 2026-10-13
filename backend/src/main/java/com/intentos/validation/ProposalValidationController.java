@@ -38,7 +38,7 @@ public class ProposalValidationController {
         var result = validator.validate(intent, proposal);
         eventStore.append(new IntentDecisionEvent(
                 "EVT-" + UUID.randomUUID(), intentId, proposal.proposalId(), Instant.now(), "VALIDATION",
-                result.decision(), result.calculatedTotal(), result.violations(), result.explanation()));
+                result.decision(), result.calculatedTotal(), result.violations(), result.explanation(), proposal));
         return result;
     }
 }

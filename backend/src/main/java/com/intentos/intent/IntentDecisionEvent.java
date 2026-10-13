@@ -15,7 +15,16 @@ public record IntentDecisionEvent(
         ValidationDecision decision,
         BigDecimal calculatedTotal,
         List<PolicyViolation> violations,
-        String message) {
+        String message,
+        TransactionProposal proposalSnapshot) {
+
+    public IntentDecisionEvent(String eventId, String intentId, String proposalId, Instant occurredAt,
+            String eventType, ValidationDecision decision, BigDecimal calculatedTotal,
+            List<PolicyViolation> violations, String message) {
+        this(eventId, intentId, proposalId, occurredAt, eventType, decision,
+                calculatedTotal, violations, message, null);
+    }
+
     public IntentDecisionEvent {
         violations = List.copyOf(violations);
     }

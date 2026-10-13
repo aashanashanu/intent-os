@@ -49,30 +49,30 @@ public class IntentRepairService {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             ValidationResult result = validator.validate(intent, proposal);
             if (result.decision() == ValidationDecision.APPROVE) {
-                history.add(new RepairAttempt(attempt, result, "Proposal satisfies intent policies."));
+                history.add(new RepairAttempt(attempt, result, "Proposal satisfies intent policies.", proposal));
                 return new RepairResult(RepairStatus.APPROVED, attempt - 1, proposal, history,
                         "Proposal approved after deterministic policy validation.");
             }
 
             if (result.violations().stream().anyMatch(violation -> !SAFELY_REPAIRABLE_VIOLATIONS.contains(violation.type()))) {
-                history.add(new RepairAttempt(attempt, result, "A violation requires a new proposal or user decision."));
+                history.add(new RepairAttempt(attempt, result, "A violation requires a new proposal or user decision.", proposal));
                 return new RepairResult(RepairStatus.NEEDS_USER_REVIEW, attempt - 1, proposal, history,
                         "The proposal contains a violation that cannot be corrected safely without changing user intent.");
             }
 
             TransactionProposal repaired = applySafeCorrections(intent, proposal, result);
             if (repaired == null || sameProposal(proposal, repaired)) {
-                history.add(new RepairAttempt(attempt, result, "No safe automatic correction is available."));
+                history.add(new RepairAttempt(attempt, result, "No safe automatic correction is available.", proposal));
                 return new RepairResult(RepairStatus.NEEDS_USER_REVIEW, attempt - 1, proposal, history,
                         "Policy violations require a user decision or a new agent proposal.");
             }
 
-            history.add(new RepairAttempt(attempt, result, "Applied deterministic policy-safe corrections."));
+            history.add(new RepairAttempt(attempt, result, "Applied deterministic policy-safe corrections.", proposal));
             proposal = repaired;
         }
 
         ValidationResult finalResult = validator.validate(intent, proposal);
-        history.add(new RepairAttempt(MAX_ATTEMPTS, finalResult, "Repair limit reached."));
+        history.add(new RepairAttempt(MAX_ATTEMPTS, finalResult, "Repair limit reached.", proposal));
         if (finalResult.decision() == ValidationDecision.APPROVE) {
             return new RepairResult(RepairStatus.APPROVED, MAX_ATTEMPTS, proposal, history,
                     "Proposal approved on the final repair attempt.");

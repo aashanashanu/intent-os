@@ -69,13 +69,13 @@ public class IntentRepairController {
             eventStore.append(new IntentDecisionEvent(
                     "EVT-" + UUID.randomUUID(), intentId, proposal.proposalId(), Instant.now(), "REPAIR_ATTEMPT",
                     attempt.validation().decision(), attempt.validation().calculatedTotal(),
-                    attempt.validation().violations(), attempt.action()));
+                    attempt.validation().violations(), attempt.action(), attempt.proposal()));
         }
         RepairAttempt lastAttempt = result.history().get(result.history().size() - 1);
         eventStore.append(new IntentDecisionEvent(
                 "EVT-" + UUID.randomUUID(), intentId, proposal.proposalId(), Instant.now(), "REPAIR_COMPLETED",
                 lastAttempt.validation().decision(), lastAttempt.validation().calculatedTotal(),
-                lastAttempt.validation().violations(), result.explanation()));
+                lastAttempt.validation().violations(), result.explanation(), result.proposal()));
         return result;
     }
 }

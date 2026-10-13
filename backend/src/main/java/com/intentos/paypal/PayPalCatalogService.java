@@ -45,6 +45,10 @@ public class PayPalCatalogService {
         return !clientId.isBlank() && !clientSecret.isBlank();
     }
 
+    public String clientId() {
+        return clientId;
+    }
+
     private synchronized String accessToken() {
         if (!isConfigured()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "PayPal Sandbox credentials are not configured");

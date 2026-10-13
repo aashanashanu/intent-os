@@ -37,8 +37,23 @@ type RepairResult = {
   status: 'APPROVED' | 'NEEDS_USER_REVIEW'
   attempts: number
   proposal: {
+    proposalId: string
+    intentId: string
+    currency: string
     total: number
-    items: Array<{ name: string; quantity: number; unitPrice: number }>
+    shipping: number
+    tax: number
+    items: Array<{
+      name: string
+      category: string
+      quantity: number
+      unitPrice: number
+      recurring: boolean
+      subscription: boolean
+      addOn: boolean
+      merchant: string | null
+      attributes: Record<string, string>
+    }>
   }
   explanation: string
   modelAdvice?: string | null
@@ -55,8 +70,53 @@ type AuthSession = {
 
 type IntegrationStatus = {
   paypalCatalogConfigured: boolean
+  paypalClientId: string
+  paypalWebhookConfigured: boolean
   elasticPersistenceEnabled: boolean
   authenticationRequired: boolean
+}
+
+type PayPalOrder = { orderId: string; status: string; approvalUrl: string }
+type PayPalCapture = { orderId: string; status: string; captureId: string; amount: number; currency: string }
+type AgentReceipt = {
+  receiptId: string
+  intentId: string
+  amount: number
+  currency: string
+  paypalOrderId: string
+  paypalCaptureId: string
+  orderStatus: string
+  captureStatus: string
+  webhookEventId: string
+  createdAt: string
+  proposalHistory: RepairResult['proposal'][]
+  violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
+  repairs: DecisionEvent[]
+  activityTimeline: DecisionEvent[]
+}
+
+type PayPalV6Session = {
+  start(options: { presentationMode: 'auto'; orderId: string }): Promise<unknown>
+}
+
+type PayPalV6Instance = {
+  createPayPalOneTimePaymentSession(options: {
+    onApprove(data: { orderId: string }): Promise<void>
+    onCancel(): void
+    onError(error: unknown): void
+  }): PayPalV6Session
+}
+
+declare global {
+  interface Window {
+    paypal?: {
+      createInstance(options: {
+        clientId: string
+        components: ['paypal-payments']
+        pageType: 'checkout'
+      }): Promise<PayPalV6Instance>
+    }
+  }
 }
 
 type CatalogProduct = {
@@ -127,6 +187,9 @@ function App() {
   const [initialPolicyCheck, setInitialPolicyCheck] = useState<PolicyCheck | null>(null)
   const [finalPolicyCheck, setFinalPolicyCheck] = useState<PolicyCheck | null>(null)
   const [activityEvents, setActivityEvents] = useState<DecisionEvent[]>([])
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [paymentCapture, setPaymentCapture] = useState<PayPalCapture | null>(null)
+  const [agentReceipts, setAgentReceipts] = useState<AgentReceipt[]>([])
   const [modelExplanation, setModelExplanation] = useState('')
   const [explanationLoading, setExplanationLoading] = useState(false)
   const [notice, setNotice] = useState(() => loginError === 'access_denied'
@@ -215,6 +278,8 @@ function App() {
       setInitialPolicyCheck(null)
       setFinalPolicyCheck(null)
       setActivityEvents([])
+      setAgentReceipts([])
+      setPaymentCapture(null)
       setNotice(`Contract ${createdIntent.intentId} saved. Deterministic policy validation is ready.`)
       setNoticeKind('success')
       setRequest('')
@@ -273,6 +338,83 @@ function App() {
   async function refreshIntentActivity(intentId: string) {
     const response = await fetch(`/api/intents/${intentId}/events`)
     if (response.ok) setActivityEvents(await response.json() as DecisionEvent[])
+  }
+
+  async function loadReceipts(intentId: string) {
+    const response = await fetch(`/api/intents/${intentId}/receipts`)
+    if (response.ok) setAgentReceipts(await response.json() as AgentReceipt[])
+  }
+
+  function loadPayPalV6(clientId: string) {
+    if (window.paypal) return Promise.resolve()
+    return new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>('#paypal-v6-sdk')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('PayPal checkout SDK could not be loaded.')), { once: true })
+        return
+      }
+      const script = document.createElement('script')
+      script.id = 'paypal-v6-sdk'
+      script.src = 'https://www.sandbox.paypal.com/web-sdk/v6/core'
+      script.async = true
+      script.onload = () => window.paypal ? resolve() : reject(new Error('PayPal checkout SDK did not initialize.'))
+      script.onerror = () => reject(new Error('PayPal checkout SDK could not be loaded.'))
+      script.dataset.clientId = clientId
+      document.head.append(script)
+    })
+  }
+
+  async function startCheckout() {
+    if (!activeIntent || !repairResult || finalPolicyCheck?.decision !== 'APPROVE' || !integrations?.paypalClientId) return
+    setCheckoutBusy(true)
+    setPaymentCapture(null)
+    setNotice('')
+    const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
+    try {
+      const orderResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders`, {
+        method: 'POST', headers, body: JSON.stringify(repairResult.proposal),
+      })
+      if (!orderResponse.ok) throw new Error(orderResponse.status === 409
+        ? 'The proposal no longer passes policy validation. Revalidate it before checkout.'
+        : 'PayPal order creation failed.')
+      const order = await orderResponse.json() as PayPalOrder
+      await loadPayPalV6(integrations.paypalClientId)
+      if (!window.paypal) throw new Error('PayPal checkout SDK is unavailable.')
+      const paypal = await window.paypal.createInstance({
+        clientId: integrations.paypalClientId,
+        components: ['paypal-payments'],
+        pageType: 'checkout',
+      })
+      const session = paypal.createPayPalOneTimePaymentSession({
+        onApprove: async (approval) => {
+          if (approval.orderId !== order.orderId) throw new Error('PayPal approved a different order than the validated checkout.')
+          const captureResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders/${order.orderId}/capture`, {
+            method: 'POST', headers,
+          })
+          if (!captureResponse.ok) throw new Error('Server-side PayPal capture failed after buyer approval.')
+          setPaymentCapture(await captureResponse.json() as PayPalCapture)
+          await refreshIntentActivity(activeIntent.intentId)
+          await loadReceipts(activeIntent.intentId)
+          setNotice('Payment capture returned. The verified PayPal webhook will finalize the AgentReceipt.')
+          setNoticeKind('success')
+        },
+        onCancel: () => {
+          setNotice('PayPal checkout was cancelled. No capture was requested.')
+          setNoticeKind('error')
+        },
+        onError: () => {
+          setNotice('PayPal checkout could not be completed. No client-side capture was attempted.')
+          setNoticeKind('error')
+        },
+      })
+      await session.start({ presentationMode: 'auto', orderId: order.orderId })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not start PayPal checkout.')
+      setNoticeKind('error')
+    } finally {
+      setCheckoutBusy(false)
+    }
   }
 
   async function runRepair() {
@@ -478,8 +620,9 @@ function App() {
                 {notice && <p className={`notice ${noticeKind}`} role="status"><Check size={14} />{notice}</p>}
                 {activeIntent && <article className="saved-contract"><div className="draft-row"><div className="draft-status"><ShieldCheck size={15} /></div><div className="draft-copy"><p>{activeIntent.goal}</p><span>{activeIntent.intentId} · In-memory contract</span></div><strong className="contract-budget">${activeIntent.maxAmount.toFixed(2)}</strong></div><button className="repair-button" onClick={runRepair} disabled={repairing}><ShieldCheck size={14} />{repairing ? 'Checking and repairing…' : 'Run sample proposal repair'}</button></article>}
                 {initialPolicyCheck && <div className={`validation-result ${initialPolicyCheck.decision === 'APPROVE' ? 'approved' : initialPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Initial validation · {initialPolicyCheck.decision}</strong><span>Calculated ${initialPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{initialPolicyCheck.violations.length > 0 ? <ul>{initialPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
-                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p>{repairResult.modelAdvice && <p className="model-advice"><strong>Model suggestion · advisory</strong><span>{repairResult.modelAdvice}</span></p>}<div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No PayPal Catalog item was used and no payment was created.</small></div>}
+                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p>{repairResult.modelAdvice && <p className="model-advice"><strong>Model suggestion · advisory</strong><span>{repairResult.modelAdvice}</span></p>}<div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No PayPal Catalog item was used and no payment was created.</small>{finalPolicyCheck?.decision === 'APPROVE' && <button className="primary-button checkout-button" onClick={startCheckout} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Opening PayPal…' : !auth.authenticated ? 'Sign in to continue to PayPal' : 'Continue to PayPal checkout'}</button>}</div>}
                 {finalPolicyCheck && <div className={`validation-result ${finalPolicyCheck.decision === 'APPROVE' ? 'approved' : finalPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Revalidation · {finalPolicyCheck.decision}</strong><span>Calculated ${finalPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{finalPolicyCheck.violations.length > 0 ? <ul>{finalPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
+                {paymentCapture && <div className="capture-confirmation" role="status"><strong>PayPal returned {paymentCapture.status}</strong><span>{paymentCapture.captureId} · {paymentCapture.currency} {paymentCapture.amount.toFixed(2)}</span></div>}
               </section>
 
               <section className="activity-section" id="activity">
@@ -489,6 +632,16 @@ function App() {
                 </div>
                 {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No agent activity yet</strong><span>Validated proposals and repair decisions will appear here.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.proposalId} · ${event.calculatedTotal.toFixed(2)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><small>{event.message}</small>{event.violations.length > 0 && <small>{event.violations.map((violation) => violation.type.replaceAll('_', ' ')).join(' · ')}</small>}</div></article>)}</div>}
                 {modelExplanation && <p className="model-explanation" role="status"><strong>Evidence-based explanation</strong>{modelExplanation}</p>}
+              </section>
+
+              <section className="activity-section receipt-section" id="receipts">
+                <div className="section-heading activity-heading">
+                  <div><h2>AgentReceipt</h2><p>Finalized from verified PayPal webhook evidence</p></div>
+                  <button className="text-button" onClick={() => activeIntent && loadReceipts(activeIntent.intentId)} disabled={!activeIntent}><RefreshCw size={14} />Refresh</button>
+                </div>
+                {agentReceipts.length === 0
+                  ? <div className="empty-activity"><div className="empty-glyph"><ReceiptText size={20} /></div><strong>No finalized receipts yet</strong><span>A receipt appears after a verified PayPal capture webhook.</span></div>
+                  : <div className="receipt-list">{agentReceipts.map((receipt) => <article className="receipt-row" key={receipt.receiptId}><div className="event-indicator approve"><ReceiptText size={14} /></div><div className="event-copy"><strong>{receipt.currency} {receipt.amount.toFixed(2)} · {receipt.captureStatus}</strong><span>{receipt.paypalCaptureId} · Order {receipt.paypalOrderId}</span><small>{receipt.proposalHistory.length} proposal snapshot{receipt.proposalHistory.length === 1 ? '' : 's'} · {receipt.repairs.length} repair event{receipt.repairs.length === 1 ? '' : 's'} · webhook {receipt.webhookEventId}</small><small>{new Date(receipt.createdAt).toLocaleString()}</small></div></article>)}</div>}
               </section>
 
               <section className="activity-section catalog-section" id="catalog">
@@ -521,6 +674,7 @@ function App() {
                 <div className="panel-heading"><div><span className="panel-kicker">CONNECTED SERVICES</span><h2>Infrastructure</h2></div></div>
                 <div className="service-row"><span className={`service-indicator ${health}`} /><span>IntentOS API</span><span className="service-state">{health === 'online' ? 'Online' : health === 'checking' ? 'Checking' : 'Offline'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.paypalCatalogConfigured ? 'online' : 'pending'}`} /><span>PayPal Catalog</span><span className={`service-state ${integrations?.paypalCatalogConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.paypalCatalogConfigured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
+                <div className="service-row"><span className={`service-indicator ${integrations?.paypalWebhookConfigured ? 'online' : 'pending'}`} /><span>PayPal webhooks</span><span className={`service-state ${integrations?.paypalWebhookConfigured ? '' : 'pending-text'}`}>{integrations?.paypalWebhookConfigured ? 'Configured' : 'Not configured'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.elasticPersistenceEnabled ? 'online' : 'pending'}`} /><span>Elastic persistence</span><span className={`service-state ${integrations?.elasticPersistenceEnabled ? '' : 'pending-text'}`}>{integrations ? integrations.elasticPersistenceEnabled ? 'Enabled' : 'In memory' : 'Checking'}</span></div>
               </section>
 

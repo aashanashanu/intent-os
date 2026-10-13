@@ -13,18 +13,23 @@ public class IntegrationStatusController {
     private final PayPalCatalogService catalogService;
     private final boolean elasticEnabled;
     private final boolean authenticationRequired;
+    private final boolean paypalWebhookConfigured;
 
     public IntegrationStatusController(PayPalCatalogService catalogService,
             @Value("${intentos.elastic.enabled:false}") boolean elasticEnabled,
-            @Value("${intentos.auth.required:false}") boolean authenticationRequired) {
+            @Value("${intentos.auth.required:false}") boolean authenticationRequired,
+            @Value("${paypal.webhook-id:}") String paypalWebhookId) {
         this.catalogService = catalogService;
         this.elasticEnabled = elasticEnabled;
         this.authenticationRequired = authenticationRequired;
+        this.paypalWebhookConfigured = !paypalWebhookId.isBlank();
     }
 
     @GetMapping
-    public Map<String, Boolean> status() {
+    public Map<String, Object> status() {
         return Map.of("paypalCatalogConfigured", catalogService.isConfigured(),
+            "paypalClientId", catalogService.clientId(),
+            "paypalWebhookConfigured", paypalWebhookConfigured,
                 "elasticPersistenceEnabled", elasticEnabled,
                 "authenticationRequired", authenticationRequired);
     }
