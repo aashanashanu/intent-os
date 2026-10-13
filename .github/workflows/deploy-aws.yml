@@ -68,7 +68,6 @@ jobs:
           PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://d16bwrbw919sxe.cloudfront.net' }}
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
           BACKEND_ARTIFACT_BUCKET: ${{ vars.BACKEND_ARTIFACT_BUCKET || 'intent-os-deploy-20261009163255858700000002' }}
-          BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID || 'i-04cb60a865d72726e' }}
           RUNTIME_PARAMETER_NAME: ${{ vars.RUNTIME_PARAMETER_NAME || '/intent-os/prod/backend-env' }}
           DEPLOYMENT_SHA: ${{ github.sha }}
           PAYPAL_ENVIRONMENT: ${{ vars.PAYPAL_ENVIRONMENT || 'sandbox' }}
@@ -86,7 +85,19 @@ jobs:
           INTENTOS_LLM_MODEL_REPAIR: ${{ vars.INTENTOS_LLM_MODEL_REPAIR || 'amazon.nova-lite-v1:0' }}
           INTENTOS_LLM_MODEL_EXPLANATION: ${{ vars.INTENTOS_LLM_MODEL_EXPLANATION || 'amazon.nova-micro-v1:0' }}
           INTENTOS_LLM_MAX_TOKENS: ${{ vars.INTENTOS_LLM_MAX_TOKENS || '700' }}
-        run: node scripts/write-ec2-deployment.mjs
+        run: |
+          instance_id=$(aws ec2 describe-instances \
+            --filters 'Name=tag:Name,Values=intent-os-backend' 'Name=instance-state-name,Values=running' \
+            --region "$AWS_REGION" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text)
+          if [[ ! "$instance_id" =~ ^i-[0-9a-f]+$ ]]; then
+            echo "Expected one running intent-os-backend instance, got: $instance_id" >&2
+            exit 1
+          fi
+          echo "BACKEND_INSTANCE_ID=$instance_id" >> "$GITHUB_ENV"
+          export BACKEND_INSTANCE_ID="$instance_id"
+          node scripts/write-ec2-deployment.mjs
 
       - name: Store backend runtime secrets in Parameter Store
         env:
@@ -100,7 +111,6 @@ jobs:
       - name: Wait for EC2 Systems Manager registration
         env:
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-          BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID || 'i-04cb60a865d72726e' }}
         run: |
           for attempt in $(seq 1 40); do
             status=$(aws ssm describe-instance-information \
@@ -117,7 +127,6 @@ jobs:
       - name: Send backend deployment through SSM
         env:
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-          BACKEND_INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID || 'i-04cb60a865d72726e' }}
         run: |
           command_id=$(aws ssm send-command \
             --instance-ids "$BACKEND_INSTANCE_ID" \
