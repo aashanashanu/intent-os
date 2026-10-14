@@ -20,6 +20,7 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
     private final RestClient client;
     private final ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ElasticsearchIntentDecisionEventStore(
             @Value("${intentos.elastic.url:}") String url,
             @Value("${intentos.elastic.api-key:}") String apiKey,
