@@ -49,7 +49,7 @@ Node.js 18+ and network access to npm and PayPal Sandbox are required. In VS Cod
 
 ## Amazon Bedrock intent extraction
 
-The backend uses Amazon Bedrock Converse with model IDs configured per task: Nova Micro for intent extraction and explanation, and Nova Lite for intent reasoning and cart-repair suggestions. Extraction and ambiguity/conflict review are used by the draft endpoint; repair suggestions accompany deterministic repair results; explanations use persisted intent/event evidence. Java policy validation remains authoritative for APPROVE, MODIFY, HOLD, and BLOCK; model output cannot create PayPal orders, authorize payments, or capture funds. Shopping-agent candidate generation is not yet wired.
+The backend uses Amazon Bedrock Converse with model IDs configured per task: Nova Micro for intent extraction and explanation, and Nova Lite for intent reasoning and cart-repair suggestions. Extraction and ambiguity/conflict review are used by the draft endpoint; repair suggestions accompany deterministic repair results; explanations use persisted intent/event evidence. Shopping candidates come from Channel3 offers through the backend API; AI may advise, but only Java policy validation owns APPROVE, MODIFY, HOLD, and BLOCK and only the backend executes PayPal operations.
 
 The defaults use `amazon.nova-micro-v1:0` and `amazon.nova-lite-v1:0` in `us-east-1`. The Terraform EC2 role is scoped to invoke those two Nova foundation models in that region. Model availability and pricing can change; verify model access in the Bedrock console before enabling inference.
 
@@ -74,7 +74,7 @@ Use the same request set to compare models: clear laptop request, missing budget
 ## Elastic Cloud persistence
 
 1. In [Elastic Cloud](https://cloud.elastic.co/), create/open a deployment with Elasticsearch and Kibana. Confirm the required Agent Builder/Search features are available in the subscription/trial attached to that deployment.
-2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the `intent-v1`, `intent-event-v1`, `paypal-checkout-v1`, `paypal-webhook-v1`, and `agent-receipt-v1` indexes. It needs document read/write privileges on those indexes. Keep the encoded API key private.
+2. Copy the Elasticsearch HTTPS endpoint (not the Kibana URL) and create an Elasticsearch API key limited to the `intent-v1`, `intent-event-v1`, `paypal-checkout-v1`, `paypal-webhook-v1`, and `agent-receipt-v1` indexes. The runtime key needs document read/write privileges on those indices; use a separate short-lived setup key with index-mapping privileges if you configure mappings. Keep both encoded keys private.
 3. Set these backend variables locally:
 
    ```dotenv
@@ -83,14 +83,35 @@ Use the same request set to compare models: clear laptop request, missing budget
    INTENTOS_ELASTIC_API_KEY=your-encoded-api-key
    ```
 
-4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`; checkout state uses `paypal-checkout-v1`; processed webhook IDs use `paypal-webhook-v1`; and unique AgentReceipts use `agent-receipt-v1`.
-5. Create an intent, validate or repair a proposal, and retrieve its activity with `GET /api/intents/{intentId}/events`. With Elastic enabled, confirm contracts, checkout state, events, and receipts remain available after a backend restart. Missing endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
+4. Restart the backend. Intent Contracts use `intent-v1`; immutable validation and repair events use append-only `intent-event-v1`; checkout state uses `paypal-checkout-v1`; processed webhook IDs use `paypal-webhook-v1`; and unique AgentReceipts use `agent-receipt-v1`. For semantic ranking, configure an Elasticsearch inference endpoint and map `agent-receipt-v1.searchText` as `semantic_text` before receipt ingestion, using a setup identity with mapping privileges. The app attempts this mapping and falls back to a lexical `text` field when the cluster/version/credentials do not support it. Semantic queries can also fall back to lexical search if rejected.
+5. Receipt search is `GET /api/intents/{intentId}/receipts/search?q=...&status=...`; results are always scoped to the accessible intent. Metrics are `GET /api/intents/{intentId}/receipts/metrics`. With Elastic enabled, the backend retrieves decision rows with ES|QL and computes compliance, violation, repair, intervention, captured and prevented amounts deterministically in Java. Confirm contracts, checkout state, events, and receipts remain available after a backend restart. Missing Elasticsearch endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
 
-The GitHub Actions deployment accepts `PAYPAL_WEBHOOK_ID` as a GitHub environment variable or secret and writes it into the backend runtime `SecureString` in AWS Systems Manager Parameter Store. `CHANNEL3_API_KEY`, PayPal client secrets, webhook ID, and Elastic API key remain server-side; the browser receives only the public PayPal client ID and non-secret readiness flags.
+### Elastic Agent Builder and Receipt Analyst
+
+The UI's **Ask the Receipt Analyst** flow first retrieves up to ten receipts scoped to the currently authorized intent, and sends only those receipts plus deterministic metrics to the configured `receipt-analyst` Agent Builder agent. The agent does not receive unrestricted index search tools in the app path; this preserves the backend's per-intent access boundary. Without Kibana Agent Builder configuration, the app uses the existing Bedrock explanation model on the same retrieved evidence.
+
+For runtime chat, configure `ELASTIC_KIBANA_URL`, `ELASTIC_AGENT_BUILDER_API_KEY`, and `ELASTIC_AGENT_BUILDER_AGENT_ID`. The runtime API key needs Agent Builder **Read** plus read-only `read` and `view_index_metadata` privileges on the required indices in the chosen Kibana space. Configure the Kibana URL as a GitHub Actions variable and the encoded API key as a secret for AWS deployment.
+
+To provision the custom ES|QL tools and the agent, create a separate, short-lived management API key with Agent Builder tool/agent management privileges for the intended space. From the repository root run:
+
+Copy the actual Kibana URL using **Open Kibana** in Elastic Cloud. An Elasticsearch hostname containing `.es.` is not a Kibana endpoint and will reject `/api/agent_builder` requests. Do not infer the Kibana hostname by replacing part of the Elasticsearch URL. The provisioning key needs `feature_agentBuilder.all` (or the appropriate read/manage-tools/manage-agents privileges for your version and space), plus `read` and `view_index_metadata` on the receipt indices. An Elasticsearch document read/write key alone is not sufficient for Kibana management.
+
+```sh
+KIBANA_URL=https://your-kibana-host \
+KIBANA_API_KEY=your-management-api-key \
+KIBANA_SPACE=default \
+node scripts/provision-elastic-agent-builder.mjs
+```
+
+`KIBANA_SPACE=default` uses `/api/agent_builder` without a space prefix. Other spaces use `/s/<space>/api/agent_builder`. Set credentials privately in the terminal; do not paste them into chat or commit them. A 401 indicates invalid credentials; a 403 usually indicates missing Kibana privileges or the wrong space. A 404 can indicate that Agent Builder is unavailable on the selected deployment/version.
+
+The idempotent script reads non-secret definitions from `elastic/agent-builder/receipt-analyst.json`. It creates `intentos.search_receipts`, `intentos.receipt_metrics`, and the `receipt-analyst` agent. The ES|QL tools are available for controlled Kibana exploration; the app itself uses the backend's intent-scoped retrieval before sending evidence to the tool-less agent. Never commit management or runtime API keys.
+
+The GitHub Actions deployment accepts `PAYPAL_WEBHOOK_ID` as a GitHub environment variable or secret and writes it into the backend runtime `SecureString` in AWS Systems Manager Parameter Store. `CHANNEL3_API_KEY`, PayPal client secrets, webhook ID, Elasticsearch API key, and Kibana Agent Builder API key remain server-side; the browser receives only the public PayPal client ID and non-secret readiness flags.
 
 For AWS, add `CHANNEL3_API_KEY` as a GitHub Actions repository/environment secret. The deployment script writes it only into the backend runtime `SecureString`; it is not a Vite variable or part of frontend assets.
 
-Elastic persistence covers Intent Contracts, decision/repair events, checkout records, processed webhook IDs, and AgentReceipts. Semantic/hybrid search and Agent Builder tools remain Week 4 work.
+Elastic persistence covers Intent Contracts, decision/repair events, checkout records, processed webhook IDs, and AgentReceipts. Receipt search supports structured status filters, lexical matching, and semantic ranking when the `searchText` semantic mapping is available; it falls back to lexical search otherwise.
 
 ## Required values to finish live-provider verification
 

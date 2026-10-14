@@ -6,4 +6,6 @@ public interface AgentReceiptStore {
     boolean saveIfAbsent(AgentReceipt receipt);
 
     List<AgentReceipt> findAllByIntentId(String intentId);
+
+    List<AgentReceipt> search(String intentId, String query, String status, int limit);
 }

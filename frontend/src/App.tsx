@@ -72,6 +72,7 @@ type AuthSession = {
 type IntegrationStatus = {
   paypalCatalogConfigured: boolean
   channel3Configured: boolean
+  elasticAgentBuilderConfigured: boolean
   paypalClientId: string
   paypalWebhookConfigured: boolean
   elasticPersistenceEnabled: boolean
@@ -96,6 +97,22 @@ type AgentReceipt = {
   repairs: DecisionEvent[]
   activityTimeline: DecisionEvent[]
 }
+
+type ReceiptMetrics = {
+  totalProposals: number
+  approvedProposals: number
+  violatingProposals: number
+  repairedProposals: number
+  proposalsRequiringReview: number
+  preventedAmount: number
+  capturedAmount: number
+  intentComplianceRate: number
+  violationRate: number
+  repairRate: number
+  humanInterventionRate: number
+}
+
+type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number }
 
 type PayPalV6Session = {
   start(options: { presentationMode: 'auto'; orderId: string }): Promise<unknown>
@@ -229,6 +246,13 @@ function App() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [paymentCapture, setPaymentCapture] = useState<PayPalCapture | null>(null)
   const [agentReceipts, setAgentReceipts] = useState<AgentReceipt[]>([])
+  const [receiptMetrics, setReceiptMetrics] = useState<ReceiptMetrics | null>(null)
+  const [receiptQuery, setReceiptQuery] = useState('')
+  const [receiptStatus, setReceiptStatus] = useState('')
+  const [receiptsLoading, setReceiptsLoading] = useState(false)
+  const [analystQuestion, setAnalystQuestion] = useState('')
+  const [analystResult, setAnalystResult] = useState<ReceiptAnalystResult | null>(null)
+  const [analystLoading, setAnalystLoading] = useState(false)
   const [modelExplanation, setModelExplanation] = useState('')
   const [explanationLoading, setExplanationLoading] = useState(false)
   const [notice, setNotice] = useState(() => loginError === 'access_denied'
@@ -313,6 +337,7 @@ function App() {
       if (!response.ok) throw new Error('The API rejected this intent. Check the required fields and try again.')
       const createdIntent = await response.json() as IntentContract
       setActiveIntent(createdIntent)
+      void loadReceiptMetrics(createdIntent.intentId)
       setRepairResult(null)
       setChannel3Offers([])
       setChannel3Message('')
@@ -325,6 +350,8 @@ function App() {
       setFinalPolicyCheck(null)
       setActivityEvents([])
       setAgentReceipts([])
+      setReceiptMetrics(null)
+      setAnalystResult(null)
       setPaymentCapture(null)
       setNotice(`Contract ${createdIntent.intentId} saved. Deterministic policy validation is ready.`)
       setNoticeKind('success')
@@ -384,11 +411,53 @@ function App() {
   async function refreshIntentActivity(intentId: string) {
     const response = await fetch(`/api/intents/${intentId}/events`)
     if (response.ok) setActivityEvents(await response.json() as DecisionEvent[])
+    void loadReceiptMetrics(intentId)
   }
 
-  async function loadReceipts(intentId: string) {
-    const response = await fetch(`/api/intents/${intentId}/receipts`)
-    if (response.ok) setAgentReceipts(await response.json() as AgentReceipt[])
+  async function loadReceiptMetrics(intentId: string) {
+    const response = await fetch(`/api/intents/${intentId}/receipts/metrics`)
+    if (response.ok) setReceiptMetrics(await response.json() as ReceiptMetrics)
+  }
+
+  async function searchReceipts() {
+    if (!activeIntent) return
+    setReceiptsLoading(true)
+    try {
+      const parameters = new URLSearchParams({ q: receiptQuery, status: receiptStatus, limit: '50' })
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/receipts/search?${parameters}`)
+      if (!response.ok) throw new Error('Receipt search failed.')
+      setAgentReceipts(await response.json() as AgentReceipt[])
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Receipt search failed.')
+      setNoticeKind('error')
+    } finally {
+      setReceiptsLoading(false)
+    }
+  }
+
+  async function askReceiptAnalyst(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!activeIntent || !analystQuestion.trim()) return
+    setAnalystLoading(true)
+    setAnalystResult(null)
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/receipts/analyst`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        body: JSON.stringify({ question: analystQuestion.trim(), status: receiptStatus || null }),
+      })
+      if (!response.ok) {
+        if (response.status === 404) throw new Error('No matching receipt evidence was found.')
+        if (response.status === 503) throw new Error('Receipt Analyst is unavailable. Check Bedrock access.')
+        throw new Error('Receipt Analyst request failed.')
+      }
+      setAnalystResult(await response.json() as ReceiptAnalystResult)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Receipt Analyst request failed.')
+      setNoticeKind('error')
+    } finally {
+      setAnalystLoading(false)
+    }
   }
 
   async function searchOffers() {
@@ -541,7 +610,8 @@ function App() {
           if (!captureResponse.ok) throw new Error('Server-side PayPal capture failed after buyer approval.')
           setPaymentCapture(await captureResponse.json() as PayPalCapture)
           await refreshIntentActivity(activeIntent.intentId)
-          await loadReceipts(activeIntent.intentId)
+          await searchReceipts()
+          await loadReceiptMetrics(activeIntent.intentId)
           setNotice('Payment capture returned. The verified PayPal webhook will finalize the AgentReceipt.')
           setNoticeKind('success')
         },
@@ -717,10 +787,10 @@ function App() {
           </section>
 
           <section className="metrics" aria-label="Purchase summary">
-            <div className="metric-cell"><div className="metric-icon ink"><ShoppingBag size={17} /></div><div className="metric-label">Autonomous purchases</div><div className="metric-value">0 <span>this month</span></div></div>
-            <div className="metric-cell"><div className="metric-icon coral"><ShieldCheck size={17} /></div><div className="metric-label">Intent violations</div><div className="metric-value">0 <span>detected</span></div></div>
-            <div className="metric-cell"><div className="metric-icon green"><CircleDollarSign size={17} /></div><div className="metric-label">Spend prevented</div><div className="metric-value">$0<span>.00</span></div></div>
-            <div className="metric-cell"><div className="metric-icon blue"><FileCheck2 size={17} /></div><div className="metric-label">Intent compliance</div><div className="metric-value">— <span>no transactions yet</span></div></div>
+            <div className="metric-cell"><div className="metric-icon ink"><ShoppingBag size={17} /></div><div className="metric-label">Approved proposals</div><div className="metric-value">{receiptMetrics?.approvedProposals ?? 0} <span>of {receiptMetrics?.totalProposals ?? 0}</span></div></div>
+            <div className="metric-cell"><div className="metric-icon coral"><ShieldCheck size={17} /></div><div className="metric-label">Violating proposals</div><div className="metric-value">{receiptMetrics?.violatingProposals ?? 0} <span>detected</span></div></div>
+            <div className="metric-cell"><div className="metric-icon green"><CircleDollarSign size={17} /></div><div className="metric-label">Spend prevented</div><div className="metric-value">${(receiptMetrics?.preventedAmount ?? 0).toFixed(2)}</div></div>
+            <div className="metric-cell"><div className="metric-icon blue"><FileCheck2 size={17} /></div><div className="metric-label">Intent compliance</div><div className="metric-value">{receiptMetrics ? `${(receiptMetrics.intentComplianceRate * 100).toFixed(0)}%` : '—'} <span>{receiptMetrics ? `${receiptMetrics.totalProposals} proposals` : 'no decisions yet'}</span></div></div>
           </section>
 
           <div className="workspace-grid">
@@ -783,12 +853,38 @@ function App() {
 
               <section className="activity-section receipt-section" id="receipts">
                 <div className="section-heading activity-heading">
-                  <div><h2>AgentReceipt</h2><p>Finalized from verified PayPal webhook evidence</p></div>
-                  <button className="text-button" onClick={() => activeIntent && loadReceipts(activeIntent.intentId)} disabled={!activeIntent}><RefreshCw size={14} />Refresh</button>
+                  <div><h2>AgentReceipt intelligence</h2><p>Searchable evidence, policy metrics, and {integrations?.elasticAgentBuilderConfigured ? 'Elastic Agent Builder' : 'grounded analysis'}</p></div>
+                  <button className="text-button" onClick={() => { if (activeIntent) { void searchReceipts(); void loadReceiptMetrics(activeIntent.intentId) } }} disabled={!activeIntent || receiptsLoading}><RefreshCw size={14} />Refresh</button>
                 </div>
+                {receiptMetrics && <div className="receipt-metrics" aria-label="Intent analytics">
+                  <div><span>Proposals</span><strong>{receiptMetrics.totalProposals}</strong></div>
+                  <div><span>Compliance</span><strong>{(receiptMetrics.intentComplianceRate * 100).toFixed(0)}%</strong></div>
+                  <div><span>Violations</span><strong>{receiptMetrics.violatingProposals}</strong></div>
+                  <div><span>Repaired</span><strong>{receiptMetrics.repairedProposals}</strong></div>
+                  <div><span>Prevented</span><strong>USD {receiptMetrics.preventedAmount.toFixed(2)}</strong></div>
+                  <div><span>Captured</span><strong>USD {receiptMetrics.capturedAmount.toFixed(2)}</strong></div>
+                </div>}
+                <form className="receipt-search-form" onSubmit={(event) => { event.preventDefault(); void searchReceipts() }}>
+                  <label className="sr-only" htmlFor="receipt-query">Search receipts</label>
+                  <input id="receipt-query" value={receiptQuery} onChange={(event) => setReceiptQuery(event.target.value)} placeholder="Search product, violation, or PayPal ID" />
+                  <label className="sr-only" htmlFor="receipt-status">Filter receipts by status</label>
+                  <select id="receipt-status" value={receiptStatus} onChange={(event) => setReceiptStatus(event.target.value)}>
+                    <option value="">Any status</option>
+                    <option value="COMPLETED">Captured</option>
+                    <option value="APPROVE">Approved</option>
+                    <option value="BLOCK">Blocked</option>
+                    <option value="HOLD">Needs review</option>
+                  </select>
+                  <button className="secondary-button" type="submit" disabled={!activeIntent || receiptsLoading}><Search size={14} />{receiptsLoading ? 'Searching…' : 'Search'}</button>
+                </form>
                 {agentReceipts.length === 0
-                  ? <div className="empty-activity"><div className="empty-glyph"><ReceiptText size={20} /></div><strong>No finalized receipts yet</strong><span>A receipt appears after a verified PayPal capture webhook.</span></div>
+                  ? <div className="empty-activity"><div className="empty-glyph"><ReceiptText size={20} /></div><strong>No matching receipts</strong><span>Completed receipts appear after a verified PayPal capture webhook.</span></div>
                   : <div className="receipt-list">{agentReceipts.map((receipt) => <article className="receipt-row" key={receipt.receiptId}><div className="event-indicator approve"><ReceiptText size={14} /></div><div className="event-copy"><strong>{receipt.currency} {receipt.amount.toFixed(2)} · {receipt.captureStatus}</strong><span>{receipt.paypalCaptureId} · Order {receipt.paypalOrderId}</span><small>{receipt.proposalHistory.length} proposal snapshot{receipt.proposalHistory.length === 1 ? '' : 's'} · {receipt.repairs.length} repair event{receipt.repairs.length === 1 ? '' : 's'} · webhook {receipt.webhookEventId}</small><small>{new Date(receipt.createdAt).toLocaleString()}</small></div></article>)}</div>}
+                <form className="receipt-analyst" onSubmit={askReceiptAnalyst}>
+                  <label className="form-field" htmlFor="receipt-analyst-question"><span>Ask the Receipt Analyst</span><input id="receipt-analyst-question" value={analystQuestion} onChange={(event) => setAnalystQuestion(event.target.value)} placeholder="Why was this purchase approved?" maxLength={500} /></label>
+                  <button className="primary-button" type="submit" disabled={!activeIntent || !analystQuestion.trim() || analystLoading}><Sparkles size={14} />{analystLoading ? 'Reviewing evidence…' : 'Ask'}</button>
+                </form>
+                {analystResult && <div className="analyst-answer" role="status"><strong>Receipt Analyst · {analystResult.evidenceCount} receipt{analystResult.evidenceCount === 1 ? '' : 's'} retrieved</strong><p>{analystResult.answer}</p><small>Evidence: {analystResult.receiptIds.join(', ')}</small></div>}
               </section>
 
               <section className="activity-section catalog-section" id="offers">
@@ -846,6 +942,7 @@ function App() {
                 <div className="panel-heading"><div><span className="panel-kicker">CONNECTED SERVICES</span><h2>Infrastructure</h2></div></div>
                 <div className="service-row"><span className={`service-indicator ${health}`} /><span>IntentOS API</span><span className="service-state">{health === 'online' ? 'Online' : health === 'checking' ? 'Checking' : 'Offline'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.channel3Configured ? 'online' : 'pending'}`} /><span>Channel3 offers</span><span className={`service-state ${integrations?.channel3Configured ? '' : 'pending-text'}`}>{integrations ? integrations.channel3Configured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
+                <div className="service-row"><span className={`service-indicator ${integrations?.elasticAgentBuilderConfigured ? 'online' : 'pending'}`} /><span>Receipt Analyst</span><span className={`service-state ${integrations?.elasticAgentBuilderConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.elasticAgentBuilderConfigured ? 'Elastic' : 'Bedrock / off' : 'Checking'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.paypalCatalogConfigured ? 'online' : 'pending'}`} /><span>PayPal Catalog</span><span className={`service-state ${integrations?.paypalCatalogConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.paypalCatalogConfigured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.paypalWebhookConfigured ? 'online' : 'pending'}`} /><span>PayPal webhooks</span><span className={`service-state ${integrations?.paypalWebhookConfigured ? '' : 'pending-text'}`}>{integrations?.paypalWebhookConfigured ? 'Configured' : 'Not configured'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.elasticPersistenceEnabled ? 'online' : 'pending'}`} /><span>Elastic persistence</span><span className={`service-state ${integrations?.elasticPersistenceEnabled ? '' : 'pending-text'}`}>{integrations ? integrations.elasticPersistenceEnabled ? 'Enabled' : 'In memory' : 'Checking'}</span></div>

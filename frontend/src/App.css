@@ -131,6 +131,21 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
 .receipt-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 2px; border-bottom: 1px solid #edf0ec; }
 .receipt-row:last-child { border-bottom: 0; }
 .receipt-row .event-copy small { overflow-wrap: anywhere; }
+.receipt-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0; border: 1px solid #e4e9e3; border-radius: 5px; background: #fff; }
+.receipt-metrics > div { min-width: 0; display: grid; gap: 4px; padding: 10px; }
+.receipt-metrics > div:nth-child(n + 4) { border-top: 1px solid #edf0ec; }
+.receipt-metrics > div:not(:nth-child(3n + 1)) { border-left: 1px solid #edf0ec; }
+.receipt-metrics span { color: #879188; font-size: 8px; }
+.receipt-metrics strong { color: #35483b; font-size: 12px; overflow-wrap: anywhere; }
+.receipt-search-form { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; margin-bottom: 10px; }
+.receipt-search-form input, .receipt-search-form select, .receipt-analyst input { min-width: 0; height: 35px; padding: 0 9px; border: 1px solid #e3e8e1; border-radius: 4px; color: #364139; background: #fbfcfa; font-size: 10px; }
+.receipt-analyst { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid #e8ece7; }
+.receipt-analyst .form-field { gap: 5px; }
+.receipt-analyst .primary-button { min-height: 35px; }
+.analyst-answer { display: grid; gap: 6px; margin-top: 10px; padding: 11px; border-left: 2px solid #829b85; background: #f1f6f0; }
+.analyst-answer strong { color: #49634e; font-size: 9px; }
+.analyst-answer p { color: #5f6f62; font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
+.analyst-answer small { color: #879188; font-size: 8px; overflow-wrap: anywhere; }
 .event-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 2px; border-bottom: 1px solid #edf0ec; }
 .event-row:last-child { border-bottom: 0; }
 .event-indicator { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #577961; background: #edf4ed; }
@@ -256,6 +271,15 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
   .offer-price > strong { font-size: 11px; }
   .offer-price .repair-button, .offer-price .secondary-button { padding-inline: 6px; font-size: 8px; }
   .offer-cost-fields { grid-template-columns: 1fr; }
+  .receipt-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .receipt-metrics > div:nth-child(n + 3) { border-top: 1px solid #edf0ec; }
+  .receipt-metrics > div:not(:nth-child(3n + 1)) { border-left: 0; }
+  .receipt-metrics > div:nth-child(even) { border-left: 1px solid #edf0ec; }
+  .receipt-search-form { grid-template-columns: 1fr 110px; }
+  .receipt-search-form input { grid-column: 1 / -1; }
+  .receipt-search-form button { grid-column: 1 / -1; }
+  .receipt-analyst { grid-template-columns: 1fr; }
+  .receipt-analyst .primary-button { width: 100%; }
   .draft-state { font-size: 8px; }
   .page-footer { font-size: 7px; }
 }

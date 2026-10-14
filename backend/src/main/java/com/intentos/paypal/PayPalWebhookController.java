@@ -101,12 +101,36 @@ public class PayPalWebhookController {
                 .flatMap(item -> item.violations().stream()).distinct().toList();
         List<IntentDecisionEvent> repairs = timeline.stream()
                 .filter(item -> item.eventType().startsWith("REPAIR_")).toList();
+        BigDecimal originalAmount = timeline.stream()
+            .filter(item -> checkout.proposalId().equals(item.proposalId()))
+            .filter(item -> "VALIDATION".equals(item.eventType()))
+            .map(IntentDecisionEvent::calculatedTotal)
+            .filter(java.util.Objects::nonNull)
+            .findFirst().orElse(amount);
+        BigDecimal preventedAmount = originalAmount.subtract(amount).max(BigDecimal.ZERO);
         AgentReceipt receipt = new AgentReceipt(
             "RCPT-" + orderId, checkout.intentId(), intent,
             timeline.stream().map(IntentDecisionEvent::proposalSnapshot).filter(java.util.Objects::nonNull)
                 .distinct().toList(), violations,
-                repairs, ValidationDecision.APPROVE, amount, currency, orderId, captureId,
-                "COMPLETED", status, event.path("id").asText(), Instant.now(), timeline);
+                repairs, ValidationDecision.APPROVE, amount, preventedAmount, currency, orderId, captureId,
+                "COMPLETED", status, event.path("id").asText(), Instant.now(), timeline,
+                receiptSearchText(intent, timeline, checkout));
         if (receiptStore.saveIfAbsent(receipt)) decisionEventStore.append(webhookEvent);
     }
+
+            private static String receiptSearchText(
+                com.intentos.intent.IntentContract intent,
+                List<IntentDecisionEvent> timeline,
+                PayPalCheckoutSession checkout) {
+            StringBuilder text = new StringBuilder(intent.naturalLanguageRequest()).append(' ')
+                .append(intent.goal()).append(' ');
+            checkout.proposal().items().forEach(item -> text.append(item.name()).append(' ')
+                .append(item.category()).append(' '));
+            timeline.forEach(item -> {
+                text.append(item.eventType()).append(' ').append(item.message()).append(' ');
+                item.violations().forEach(violation -> text.append(violation.type()).append(' ')
+                    .append(violation.item()).append(' '));
+            });
+            return text.toString().trim();
+            }
 }

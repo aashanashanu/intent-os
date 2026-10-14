@@ -6,9 +6,13 @@ Deliver the PRD's complete autonomous-purchase path in four weekly delivery incr
 
 PayPal Sandbox, Channel3 product discovery, and the required Elastic capabilities are integration-readiness gates. PayPal Catalog remains useful for product metadata, but it is not a live offer/price source. Use Channel3's backend API for priced retailer offers; its MCP is optional when demonstrating tool interoperability. Keep provider keys server-side. Total hosted-service and model/API spend must stay within $25. If required PayPal Sandbox or product-discovery access is blocked after Week 1, pause for access resolution rather than inventing prices or substituting an unapproved source.
 
+## Current Status
+
+The project owner has verified all Week 1–3 work and exit gates complete. Week 4 implementation is in place and locally validated; live Kibana Agent Builder provisioning, the clean deployed end-to-end acceptance run, and the final demo recording remain.
+
 ## Weekly Plan
 
-### Week 1: Feasibility and Foundation (20 hours)
+### Week 1: Feasibility and Foundation (20 hours) — COMPLETE
 
 - Provision PayPal Sandbox, Channel3 product discovery, Elastic Cloud, and candidate LLM services; retain PayPal Catalog for metadata where useful.
 - Validate server-side Channel3 search/offer retrieval (merchant, price, availability, buy URL), PayPal Sandbox buyer approval/capture, webhook feasibility, and the permitted tool surfaces. Channel3 MCP is optional; do not require PayPal MCP for product pricing.
@@ -19,7 +23,7 @@ PayPal Sandbox, Channel3 product discovery, and the required Elastic capabilitie
 
 **Exit gate:** PayPal Sandbox buyer approval/capture and Channel3 priced-offer discovery work; required Elastic capabilities are accessible; costs fit the $25 cap; and the public deployment is reachable. PayPal Catalog metadata and optional MCP tool demonstrations are supplementary, not prerequisites for offer pricing. If PayPal Sandbox or Channel3 access is blocked, pause for access resolution.
 
-### Week 2: IntentVault and Guarded Agent Loop (20 hours)
+### Week 2: IntentVault and Guarded Agent Loop (20 hours) — COMPLETE
 
 - Implement natural-language intent submission and structured Intent Contract generation with Nova Micro via Amazon Bedrock Converse. The model may extract explicit facts and suggest clarification; validate its JSON and never treat its response as policy approval.
 - Clarify low-confidence or ambiguous intent with the user; do not fill missing product or budget constraints by guessing.
@@ -33,7 +37,7 @@ PayPal Sandbox, Channel3 product discovery, and the required Elastic capabilitie
 
 **Exit gate:** Integration tests show the intentionally noncompliant proposal is blocked with all three required violations, repaired, revalidated, and approved. Ambiguous intent prompts for clarification; repair exhaustion sends the user to review.
 
-### Week 3: PayPal Payment Lifecycle and AgentReceipt (20 hours)
+### Week 3: PayPal Payment Lifecycle and AgentReceipt (20 hours) — COMPLETE
 
 - Implement server-side PayPal OAuth and Orders v2 operations.
 - Re-fetch or otherwise verify the selected Channel3 offer, then create a PayPal Sandbox order only after deterministic policy approval; compute the approved amount server-side and preserve the offer provenance in the proposal/receipt. If tax or shipping is unknown, stop for a quote/confirmation instead of treating it as zero.
@@ -45,24 +49,24 @@ PayPal Sandbox, Channel3 product discovery, and the required Elastic capabilitie
 
 **Exit gate:** A Channel3 offer can be discovered, deterministically approved, and used in the clearly labeled PayPal Sandbox buyer-approval/capture flow; its verified webhook produces exactly one complete, searchable receipt. Blocked or unapproved proposals cannot create or capture an order. The demo must not claim PayPal settled with or purchased from the Channel3 retailer without a supported merchant/payment integration.
 
-### Week 4: Elastic Intelligence, Public Demo, and Submission (20 hours)
+### Week 4: Elastic Intelligence, Public Demo, and Submission (20 hours) — IN PROGRESS
 
-- Add structured and semantic/hybrid receipt search.
-- Add ES|QL metrics, including violations and prevented amount.
-- Configure Elastic Agent Builder tools and a Receipt Analyst grounded in retrieved receipt evidence.
-- Finish intent creation, live activity, checkout, receipt/timeline, and analyst user flows, including responsive states and a concise dashboard.
-- Run the complete acceptance scenario from a clean setup against deployed services.
-- Verify security, webhook verification/idempotency, failure states, budget usage, and server-side secret handling.
-- Publish the repository, complete README setup steps and architecture/integration documentation, retain the existing license, and record a functional demo video under three minutes.
+- [x] Add intent-scoped receipt search with exact status filters, lexical relevance, and semantic ranking when Elasticsearch `semantic_text` inference is available; retain lexical fallback.
+- [x] Add deterministic compliance, violation, repair, user-review, captured-total, and prevented-amount metrics. Read proposal history with ES|QL when Elastic is enabled; never ask a model to calculate metrics.
+- [x] Add idempotent provisioning for bounded Elastic Agent Builder ES|QL tools and a Receipt Analyst. The application retrieves receipts only after backend intent authorization and passes only that scoped evidence plus deterministic metrics to the agent.
+- [x] Finish intent creation, live activity, checkout, receipt/timeline, and analyst user flows, including responsive states and a concise dashboard.
+- [ ] Provision the Agent Builder tools/agent in the target Kibana space and run the complete acceptance scenario from a clean deployed setup.
+- [ ] Verify the deployed failure states, budget usage, and server-side secret handling; record the functional demo using [docs/demo-script.md](docs/demo-script.md) in under three minutes.
+- [x] Complete README setup steps and architecture/integration documentation; retain the existing license.
 
-**Exit gate:** All PRD Definition of Done items and the end-to-end acceptance test pass on the public deployment.
+**Exit gate:** The public deployment supports the verified PayPal Sandbox flow, searchable AgentReceipts, accurate deterministic metrics, and an evidence-grounded Receipt Analyst. Clean-install instructions, architecture diagram, open-source license, and an under-three-minute working demo are complete.
 
 ## Verification Plan
 
 1. **Week 1 integration spike:** Retrieve a priced Channel3 offer and its merchant/availability/buy URL; complete a clearly labeled PayPal Sandbox order-to-buyer-approval-to-capture test; optionally verify Channel3 or PayPal MCP tool connectivity; confirm webhook reachability; confirm Elastic capabilities and actual service/model costs fit the $25 cap; deploy a public health-check page.
 2. **Week 2 automated tests:** Cover contract parsing/clarification, policy rules and evidence, all four decisions, the three-attempt repair ceiling, and the guarantee that payment operations cannot be reached before APPROVE.
 3. **Week 3 integration tests:** Verify only approved orders are created, buyer approval precedes capture, invalid webhook signatures are rejected, duplicate webhook delivery is idempotent, and one AgentReceipt is generated from authoritative PayPal events.
-4. **Week 4 end-to-end test:** Use the PRD laptop scenario to block budget/add-on/recurring violations, repair and revalidate, complete buyer-approved Sandbox capture, persist the receipt from the webhook, search in Elasticsearch, and get a grounded Receipt Analyst answer.
+4. **Week 4 end-to-end test:** Use the PRD laptop scenario to block budget/add-on/recurring violations, repair and revalidate, complete buyer-approved Sandbox capture, persist the receipt from the webhook, search lexically and semantically when configured, verify deterministic ES|QL-backed metrics, and get a grounded Receipt Analyst answer citing retrieved receipt IDs.
 5. **Clean-install/public-demo check:** Follow the README on a clean environment; verify the public URL, license, secret handling, full-scenario logs, and video runtime under three minutes.
 
 ## Decisions and Scope

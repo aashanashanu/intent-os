@@ -24,10 +24,15 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
             @Value("${intentos.elastic.url:}") String url,
             @Value("${intentos.elastic.api-key:}") String apiKey,
             ObjectMapper objectMapper) {
+        this(url, apiKey, objectMapper, RestClient.builder());
+    }
+
+    ElasticsearchIntentDecisionEventStore(String url, String apiKey, ObjectMapper objectMapper,
+            RestClient.Builder clientBuilder) {
         if (url.isBlank() || apiKey.isBlank()) {
             throw new IllegalStateException("Elastic is enabled but ELASTIC_URL or ELASTIC_API_KEY is missing");
         }
-        this.client = RestClient.builder()
+        this.client = clientBuilder
                 .baseUrl(url)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "ApiKey " + apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -75,5 +80,69 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
             }
         }
         return List.copyOf(events);
+    }
+
+    @Override
+    public List<DecisionMetricEvent> findMetricEventsByIntentId(String intentId) {
+        String escapedIntentId = intentId.replace("\\", "\\\\").replace("\"", "\\\"");
+        JsonNode response = client.post().uri("/_query")
+                .body(Map.of("query", "FROM " + INDEX
+                    + " | WHERE intentId.keyword == \"" + escapedIntentId + "\""
+                        + " | KEEP proposalId, eventType, decision, calculatedTotal, occurredAt, message"
+                        + " | SORT occurredAt ASC | LIMIT 10000"))
+                .exchange((request, result) -> {
+                    if (result.getStatusCode().value() == 404) return null;
+                    if (!result.getStatusCode().is2xxSuccessful()) {
+                        throw new IllegalStateException("Elastic ES|QL query failed with HTTP " + result.getStatusCode().value());
+                    }
+                    try {
+                        return objectMapper.readTree(result.getBody());
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("Could not decode ES|QL analytics response", exception);
+                    }
+                });
+        if (response == null) return List.of();
+        List<String> columns = new ArrayList<>();
+        response.path("columns").forEach(column -> columns.add(column.path("name").asText()));
+        List<DecisionMetricEvent> events = new ArrayList<>();
+        for (JsonNode row : response.path("values")) {
+            Map<String, JsonNode> values = new java.util.HashMap<>();
+            for (int index = 0; index < columns.size() && index < row.size(); index++) {
+                values.put(columns.get(index), row.get(index));
+            }
+            String decisionText = text(values, "decision");
+            com.intentos.validation.ValidationDecision decision = decisionText == null
+                    ? null : com.intentos.validation.ValidationDecision.valueOf(decisionText.toUpperCase());
+            java.math.BigDecimal total = decimal(values, "calculatedTotal");
+            java.time.Instant occurredAt = instant(values, "occurredAt");
+            events.add(new DecisionMetricEvent(text(values, "proposalId"), text(values, "eventType"),
+                    decision, total, occurredAt, text(values, "message")));
+        }
+        return List.copyOf(events);
+    }
+
+    private static String text(Map<String, JsonNode> values, String key) {
+        JsonNode value = values.get(key);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+
+    private static java.math.BigDecimal decimal(Map<String, JsonNode> values, String key) {
+        JsonNode value = values.get(key);
+        if (value == null || value.isNull()) return null;
+        try {
+            return new java.math.BigDecimal(value.asText());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private static java.time.Instant instant(Map<String, JsonNode> values, String key) {
+        String value = text(values, key);
+        if (value == null) return null;
+        try {
+            return java.time.Instant.parse(value);
+        } catch (java.time.format.DateTimeParseException exception) {
+            return null;
+        }
     }
 }

@@ -18,6 +18,7 @@ public record AgentReceipt(
         List<IntentDecisionEvent> repairs,
         ValidationDecision finalDecision,
         BigDecimal amount,
+        BigDecimal preventedAmount,
         String currency,
         String paypalOrderId,
         String paypalCaptureId,
@@ -25,12 +26,15 @@ public record AgentReceipt(
         String captureStatus,
         String webhookEventId,
         Instant createdAt,
-        List<IntentDecisionEvent> activityTimeline) {
+        List<IntentDecisionEvent> activityTimeline,
+        String searchText) {
 
     public AgentReceipt {
         proposalHistory = List.copyOf(proposalHistory);
         violations = List.copyOf(violations);
         repairs = List.copyOf(repairs);
         activityTimeline = List.copyOf(activityTimeline);
+        searchText = searchText == null ? "" : searchText;
+        preventedAmount = preventedAmount == null ? BigDecimal.ZERO : preventedAmount;
     }
 }
