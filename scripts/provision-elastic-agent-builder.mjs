@@ -52,7 +52,7 @@ async function upsertTool(tool) {
   } catch (error) {
     if (!String(error.message).includes('HTTP 404')) throw error;
   }
-  const { id, type, ...updateBody } = tool;
+  const { type, ...updateBody } = tool;
   if (exists) await request('PUT', path, updateBody);
   else await request('POST', '/tools', tool);
 }
@@ -66,7 +66,7 @@ async function upsertAgent(agent) {
   } catch (error) {
     if (!String(error.message).includes('HTTP 404')) throw error;
   }
-  const { id, ...updateBody } = agent;
+  const updateBody = agent;
   if (exists) await request('PUT', path, updateBody);
   else await request('POST', '/agents', agent);
 }
