@@ -826,8 +826,8 @@ function App() {
                     {shoppingProposal.quote.missingEvidence.length > 0 && <p>Missing evidence: {shoppingProposal.quote.missingEvidence.join(', ')}</p>}
                   </>}
                   {shoppingProposal.revision?.violationTypes.length ? <p>Policy findings: {shoppingProposal.revision.violationTypes.join(', ')}</p> : null}
-                  {shoppingProposal.revision && shoppingProposal.validation?.decision !== 'APPROVE' && <button className="secondary-button" onClick={repairShopping} disabled={shoppingBusy}><ShieldCheck size={14} />{shoppingBusy ? 'Repairing…' : 'Attempt safe repair'}</button>}
-                  {shoppingProposal.revision && shoppingProposal.validation?.decision === 'APPROVE' && !shoppingReviewId && <button className="secondary-button" onClick={reviewShoppingRevision} disabled={shoppingBusy}><Check size={14} />Review this exact cart</button>}
+                  {shoppingProposal.revision && (shoppingProposal.validation?.decision ?? shoppingProposal.revision.validationDecision) !== 'APPROVE' && <button className="secondary-button" onClick={repairShopping} disabled={shoppingBusy}><ShieldCheck size={14} />{shoppingBusy ? 'Repairing…' : 'Attempt safe repair'}</button>}
+                  {shoppingProposal.revision && (shoppingProposal.validation?.decision ?? shoppingProposal.revision.validationDecision) === 'APPROVE' && !shoppingReviewId && <button className="secondary-button" onClick={reviewShoppingRevision} disabled={shoppingBusy}><Check size={14} />Review this exact cart</button>}
                   {shoppingReviewId && <div className="sandbox-checkout-note"><strong>Cart review recorded</strong><span>Review {shoppingReviewId} is bound to {shoppingProposal.revision?.revisionId} and its quote.</span><button className="primary-button checkout-button" onClick={checkoutShoppingRevision} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Opening PayPal…' : !auth.authenticated ? 'Sign in to continue' : 'Continue to PayPal approval'}</button></div>}
                 </div>}
               </section>
