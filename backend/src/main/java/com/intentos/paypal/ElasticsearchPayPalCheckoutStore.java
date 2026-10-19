@@ -108,6 +108,7 @@ public class ElasticsearchPayPalCheckoutStore implements PayPalCheckoutStore {
     private static PayPalCheckoutSession withState(
             PayPalCheckoutSession session, PayPalCheckoutSession.State state, PayPalCaptureResponse capture) {
         return new PayPalCheckoutSession(session.orderId(), session.intentId(), session.proposalId(),
-                session.proposal(), session.amount(), session.currency(), state, capture);
+            session.proposal(), session.amount(), session.currency(), state, capture,
+            session.runId(), session.revisionId());
     }
 }

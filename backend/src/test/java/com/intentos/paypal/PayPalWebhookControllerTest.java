@@ -3,6 +3,7 @@ package com.intentos.paypal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intentos.intent.IntentContract;
 import com.intentos.intent.IntentDecisionEventStore;
+import com.intentos.intent.IntentDecisionEvent;
 import com.intentos.intent.IntentStore;
 import com.intentos.intent.TransactionProposal;
 import java.math.BigDecimal;
@@ -14,11 +15,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -71,6 +74,32 @@ class PayPalWebhookControllerTest {
         verify(webhookEventStore, times(1)).markProcessedIfAbsent("WH-1");
         verify(checkoutStore, times(1)).recordWebhookCapture(any(), any());
     }
+
+        @Test
+        void capturedReceiptExcludesOtherProposalEventsAndAttribution() throws Exception {
+        when(ordersService.verifyWebhook(any(), any(), any(), any(), any(), any())).thenReturn(true);
+        when(webhookEventStore.isProcessed("WH-1")).thenReturn(false);
+        when(checkoutStore.find("ORDER-1")).thenReturn(Optional.of(checkout()));
+        when(intentStore.findById("INT-1")).thenReturn(Optional.of(intent()));
+        var unrelatedViolation = new com.intentos.validation.PolicyViolation(
+            "UNREQUESTED_ADDON", "Warranty", "not requested", "added");
+        when(decisionEventStore.findAllByIntentId("INT-1")).thenReturn(List.of(
+            new IntentDecisionEvent("EVT-OTHER", "INT-1", "PROP-OTHER", Instant.now(), "VALIDATION",
+                com.intentos.validation.ValidationDecision.BLOCK, new BigDecimal("900"),
+                List.of(unrelatedViolation), "Different shopping run"),
+            new IntentDecisionEvent("EVT-CURRENT", "INT-1", "PROP-1", Instant.now(), "VALIDATION",
+                com.intentos.validation.ValidationDecision.BLOCK, new BigDecimal("60"), List.of(),
+                "Captured proposal required repair")));
+        when(receiptStore.saveIfAbsent(any(AgentReceipt.class))).thenReturn(true);
+
+        controller.receive(event(), "transmission", "time", "signature", "cert", "algo");
+
+        ArgumentCaptor<AgentReceipt> receipt = ArgumentCaptor.forClass(AgentReceipt.class);
+        verify(receiptStore).saveIfAbsent(receipt.capture());
+        assertEquals(0, new BigDecimal("12").compareTo(receipt.getValue().preventedAmount()));
+        assertTrue(receipt.getValue().violations().isEmpty());
+        assertEquals(2, receipt.getValue().activityTimeline().size());
+        }
 
     private static com.fasterxml.jackson.databind.JsonNode event() throws Exception {
         return new ObjectMapper().readTree("""

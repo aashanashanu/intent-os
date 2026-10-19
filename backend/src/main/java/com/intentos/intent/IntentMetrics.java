@@ -13,4 +13,8 @@ public record IntentMetrics(
         BigDecimal intentComplianceRate,
         BigDecimal violationRate,
         BigDecimal repairRate,
-        BigDecimal humanInterventionRate) {}
+        BigDecimal humanInterventionRate,
+        int firstPassCompliantProposals,
+        BigDecimal firstPassComplianceRate,
+        int blockedExposureProposals,
+        BigDecimal blockedExposureAmount) {}

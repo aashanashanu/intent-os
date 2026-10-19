@@ -10,7 +10,8 @@ public interface IntentDecisionEventStore {
     default List<DecisionMetricEvent> findMetricEventsByIntentId(String intentId) {
         return findAllByIntentId(intentId).stream()
                 .map(event -> new DecisionMetricEvent(event.proposalId(), event.eventType(), event.decision(),
-                        event.calculatedTotal(), event.occurredAt(), event.message()))
+                    event.calculatedTotal(), event.occurredAt(), event.message(), event.runId(),
+                    event.revisionId(), event.violations() == null ? 0 : event.violations().size()))
                 .toList();
     }
 }

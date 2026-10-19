@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -94,16 +93,21 @@ public class PayPalWebhookController {
         IntentDecisionEvent webhookEvent = new IntentDecisionEvent(
                 "EVT-PAYPAL-" + event.path("id").asText(), checkout.intentId(), checkout.proposalId(),
                 Instant.now(), CAPTURE_COMPLETED, ValidationDecision.APPROVE, amount, List.of(),
-                "Verified PayPal webhook confirmed capture " + captureId + " as " + status);
-        List<IntentDecisionEvent> timeline = new ArrayList<>(decisionEventStore.findAllByIntentId(checkout.intentId()));
+            "Verified PayPal webhook confirmed capture " + captureId + " as " + status,
+            checkout.proposal(), checkout.runId(), checkout.revisionId());
+        List<IntentDecisionEvent> timeline = new ArrayList<>(decisionEventStore.findAllByIntentId(checkout.intentId()).stream()
+            .filter(item -> checkout.runId() == null
+                ? checkout.proposalId().equals(item.proposalId())
+                : checkout.runId().equals(item.runId()))
+            .toList());
         timeline.add(webhookEvent);
         List<com.intentos.validation.PolicyViolation> violations = timeline.stream()
                 .flatMap(item -> item.violations().stream()).distinct().toList();
         List<IntentDecisionEvent> repairs = timeline.stream()
                 .filter(item -> item.eventType().startsWith("REPAIR_")).toList();
         BigDecimal originalAmount = timeline.stream()
-            .filter(item -> checkout.proposalId().equals(item.proposalId()))
-            .filter(item -> "VALIDATION".equals(item.eventType()))
+            .filter(item -> "SHOPPING_VALIDATION".equals(item.eventType())
+                    || "VALIDATION".equals(item.eventType()))
             .map(IntentDecisionEvent::calculatedTotal)
             .filter(java.util.Objects::nonNull)
             .findFirst().orElse(amount);
@@ -114,7 +118,7 @@ public class PayPalWebhookController {
                 .distinct().toList(), violations,
                 repairs, ValidationDecision.APPROVE, amount, preventedAmount, currency, orderId, captureId,
                 "COMPLETED", status, event.path("id").asText(), Instant.now(), timeline,
-                receiptSearchText(intent, timeline, checkout));
+                receiptSearchText(intent, timeline, checkout), checkout.runId(), checkout.revisionId());
         if (receiptStore.saveIfAbsent(receipt)) decisionEventStore.append(webhookEvent);
     }
 

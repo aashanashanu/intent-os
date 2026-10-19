@@ -89,7 +89,7 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
         JsonNode response = client.post().uri("/_query")
                 .body(Map.of("query", "FROM " + INDEX
                     + " | WHERE intentId.keyword == \"" + escapedIntentId + "\""
-                        + " | KEEP proposalId, eventType, decision, calculatedTotal, occurredAt, message"
+                        + " | KEEP proposalId, runId, revisionId, eventType, decision, calculatedTotal, occurredAt, message, violations"
                         + " | SORT occurredAt ASC | LIMIT 10000"))
                 .exchange((request, result) -> {
                     if (result.getStatusCode().value() == 404) return null;
@@ -117,7 +117,8 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
             java.math.BigDecimal total = decimal(values, "calculatedTotal");
             java.time.Instant occurredAt = instant(values, "occurredAt");
             events.add(new DecisionMetricEvent(text(values, "proposalId"), text(values, "eventType"),
-                    decision, total, occurredAt, text(values, "message")));
+                    decision, total, occurredAt, text(values, "message"), text(values, "runId"),
+                    text(values, "revisionId"), arraySize(values.get("violations"))));
         }
         return List.copyOf(events);
     }
@@ -145,5 +146,9 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
         } catch (java.time.format.DateTimeParseException exception) {
             return null;
         }
+    }
+
+    private static int arraySize(JsonNode value) {
+        return value != null && value.isArray() ? value.size() : 0;
     }
 }

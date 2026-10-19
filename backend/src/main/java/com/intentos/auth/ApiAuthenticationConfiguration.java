@@ -14,6 +14,7 @@ public class ApiAuthenticationConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(interceptor).addPathPatterns("/api/intents/**", "/api/catalog/**", "/api/auth/logout");
+        registry.addInterceptor(interceptor).addPathPatterns(
+                "/api/intents/**", "/api/shopping-history/**", "/api/auth/logout");
     }
 }

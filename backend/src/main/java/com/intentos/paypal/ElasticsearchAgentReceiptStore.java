@@ -24,6 +24,7 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
     private final String semanticField;
     private volatile boolean mappingInitialized;
     private volatile boolean semanticEnabled;
+    private volatile boolean semanticDegraded;
 
     public ElasticsearchAgentReceiptStore(
             @Value("${intentos.elastic.url:}") String url,
@@ -66,6 +67,7 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
             response = executeSearch(intentId, query, status, limit, true);
         } catch (HttpClientErrorException exception) {
             if (query == null || query.isBlank() || exception.getStatusCode().value() != 400) throw exception;
+            semanticDegraded = semanticEnabled;
             response = executeSearch(intentId, query, status, limit, false);
         }
         List<AgentReceipt> receipts = new ArrayList<>();
@@ -110,14 +112,24 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
             bool.put("minimum_should_match", 1);
         }
         try {
+            List<Object> sort = query == null || query.isBlank()
+                ? List.of(Map.of("createdAt", Map.of("order", "desc")))
+                : List.of(Map.of("_score", Map.of("order", "desc")),
+                    Map.of("createdAt", Map.of("order", "desc")));
             return client.post().uri("/{index}/_search", INDEX)
                     .body(Map.of("query", Map.of("bool", bool),
-                            "sort", List.of(Map.of("createdAt", Map.of("order", "desc"))),
+                    "sort", sort,
                             "size", Math.max(1, Math.min(100, limit))))
                     .retrieve().body(JsonNode.class);
         } catch (HttpClientErrorException.NotFound exception) {
             return null;
         }
+    }
+
+    @Override
+    public String searchMode() {
+        if (semanticDegraded) return "LEXICAL_DEGRADED";
+        return semanticEnabled ? "HYBRID" : "LEXICAL";
     }
 
     private synchronized void ensureSearchMapping() {

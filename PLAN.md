@@ -4,31 +4,33 @@
 
 Deliver the PRD's complete autonomous-purchase path in four weekly delivery increments: one developer, 20 hours per week, about 80 hours total. Use the PRD-recommended React, TypeScript, Tailwind, Java 21, and Spring Boot stack, and deliver a public demo.
 
-PayPal Sandbox, Channel3 product discovery, and the required Elastic capabilities are integration-readiness gates. PayPal Catalog remains useful for product metadata, but it is not a live offer/price source. Use Channel3's backend API for priced retailer offers; its MCP is optional when demonstrating tool interoperability. Keep provider keys server-side. Total hosted-service and model/API spend must stay within $25. If required PayPal Sandbox or product-discovery access is blocked after Week 1, pause for access resolution rather than inventing prices or substituting an unapproved source.
+Use a clearly labeled simulated merchant as the sole shopping catalog and quote source. Nova Lite through Bedrock will power the autonomous Shopping Agent; Spring Boot will execute its bounded tools and enforce policy. PayPal Sandbox approval/capture and verified webhooks remain actual provider integrations, and Elastic remains the audit/intelligence layer. Channel3 is removed from the target architecture, not kept as an optional parallel journey. Keep keys server-side and combined hosted-service/model spend within $25. Simulated catalog data is allowed; scripted agent choices, invented model prices, fabricated PayPal events, and predetermined success are not.
 
 ## Current Status
 
-The project owner has verified all Week 1–3 work and exit gates complete. Week 4 implementation is in place and locally validated; live Kibana Agent Builder provisioning, the clean deployed end-to-end acceptance run, and the final demo recording remain.
+The project owner previously reported Week 1–3 live verification and Agent Builder provisioning. A later source audit found seven unresolved PRD gaps, reopening Weeks 2–4 gates. The simulated merchant is now the active product path in source; this does not supersede prior live verification, and no revised deployed journey has been verified. Follow [docs/prd-remediation-plan.md](docs/prd-remediation-plan.md) for remaining gates and [docs/agent-roles.md](docs/agent-roles.md) for implementation status.
 
 ## Weekly Plan
 
-### Week 1: Feasibility and Foundation (20 hours) — COMPLETE
+Remediation progress: source now includes simulator quotes, candidate-ID-checked Nova selection, immutable run/revision lineage, same-run repair, exact-revision review, simulator-backed PayPal order creation, capture-time revalidation, run-scoped receipts, owner-scoped run history, lineage metrics, decision-only analyst retrieval, and removal of active Channel3/Catalog discovery. See [docs/simulated-merchant.md](docs/simulated-merchant.md). Persistent quote storage across replacement, distributed concurrency/idempotency, semantic retrieval, attached Agent Builder tool invocation, detailed receipt UI, and external deployed acceptance remain open.
 
-- Provision PayPal Sandbox, Channel3 product discovery, Elastic Cloud, and candidate LLM services; retain PayPal Catalog for metadata where useful.
-- Validate server-side Channel3 search/offer retrieval (merchant, price, availability, buy URL), PayPal Sandbox buyer approval/capture, webhook feasibility, and the permitted tool surfaces. Channel3 MCP is optional; do not require PayPal MCP for product pricing.
+### Week 1: Feasibility and Foundation (20 hours) - BASELINE VERIFIED; SIMULATOR GATE OPEN
+
+- Provision PayPal Sandbox, Elastic Cloud, Bedrock Nova, and a separately bounded simulated merchant service.
+- Validate merchant search/detail and computed cart quotes, explicit one-time/subscription terms, stock, destination-based tax/shipping, quote expiry, and stable product/variant IDs. Verify PayPal Sandbox approval/capture and webhook access separately.
 - Verify webhook delivery feasibility, Elastic indexing/search/Agent Builder availability, and public-hosting options and cost.
 - Validate Bedrock access, model features, privacy/routing, and current token prices for the configured Nova Micro/Nova Lite roles; estimate actual monthly usage and keep combined hosted-service/model spend within $25.
 - Scaffold the React client and Spring Boot modular monolith, including secrets/configuration handling and basic health checks.
 - Deploy a public health-check page.
 
-**Exit gate:** PayPal Sandbox buyer approval/capture and Channel3 priced-offer discovery work; required Elastic capabilities are accessible; costs fit the $25 cap; and the public deployment is reachable. PayPal Catalog metadata and optional MCP tool demonstrations are supplementary, not prerequisites for offer pricing. If PayPal Sandbox or Channel3 access is blocked, pause for access resolution.
+**Exit gate:** The simulator supplies complete, reproducible merchant evidence through APIs; PayPal Sandbox and Elastic capabilities work; costs fit the cap; and the deployment is reachable. Simulator data is visibly labeled and never presented as live retailer inventory.
 
-### Week 2: IntentVault and Guarded Agent Loop (20 hours) — COMPLETE
+### Week 2: IntentVault and Guarded Agent Loop (20 hours) - REOPENED
 
 - Implement natural-language intent submission and structured Intent Contract generation with Nova Micro via Amazon Bedrock Converse. The model may extract explicit facts and suggest clarification; validate its JSON and never treat its response as policy approval.
 - Clarify low-confidence or ambiguous intent with the user; do not fill missing product or budget constraints by guessing.
-- Use Channel3 priced offers for laptop discovery; use PayPal Catalog only for supplemental product metadata.
-- Have AI formulate or refine product-search queries and propose candidates from Channel3. Treat returned offers as untrusted, time-sensitive evidence; retain merchant, offer URL, price, availability, and retrieval time. Java policy determines which candidates are admissible; final choice must be explicit user selection or a documented deterministic server strategy. Never infer absent attributes, tax, or shipping.
+- Use the configurable simulated merchant catalog for product discovery; no external catalog is required for the main journey.
+- Implement Nova Lite as the Shopping Agent's reasoning model with server-side search, detail, and quote tools. It proposes candidate IDs and revisions; Java hydrates merchant facts, computes totals, and validates them. Review the final approved revision before PayPal buyer approval. No fixed winning product or scripted bad cart.
 - Implement candidate proposals and deterministic policy evaluation. At minimum, cover budget, recurring payments, and unrequested add-ons. Add category, required-attribute, merchant, and quantity checks where verified offer data supports them.
 - Implement APPROVE, MODIFY, HOLD, and BLOCK outcomes.
 - Add an automatic repair loop capped at three attempts, then request user review.
@@ -37,25 +39,27 @@ The project owner has verified all Week 1–3 work and exit gates complete. Week
 
 **Exit gate:** Integration tests show the intentionally noncompliant proposal is blocked with all three required violations, repaired, revalidated, and approved. Ambiguous intent prompts for clarification; repair exhaustion sends the user to review.
 
-### Week 3: PayPal Payment Lifecycle and AgentReceipt (20 hours) — COMPLETE
+### Week 3: PayPal Payment Lifecycle and AgentReceipt (20 hours) - REOPENED
 
 - Implement server-side PayPal OAuth and Orders v2 operations.
-- Re-fetch or otherwise verify the selected Channel3 offer, then create a PayPal Sandbox order only after deterministic policy approval; compute the approved amount server-side and preserve the offer provenance in the proposal/receipt. If tax or shipping is unknown, stop for a quote/confirmation instead of treating it as zero.
+- Recheck simulator inventory, terms, and quote validity before order creation. Require deterministic approval and review of the exact revision. Missing simulator facts mean HOLD; user-entered amounts cannot replace merchant quotes. Recheck intent expiry and payment eligibility before capture.
 - Render PayPal JavaScript SDK v6 checkout, require buyer approval, then capture server-side.
 - Verify webhook signatures, handle duplicate events idempotently, and persist authoritative order, capture, and webhook evidence.
 - Create AgentReceipt with intent/contract, proposal history, violations, repairs, final decision, amount, PayPal IDs/status, and a timestamped activity timeline.
 - Index intents, decisions, transactions, events, and receipts into Elasticsearch.
-- Deploy an integrated test environment with Channel3, PayPal, and Elastic secrets held server-side. Label Sandbox checkout accurately: a PayPal capture is evidence of a payment to the configured PayPal Sandbox merchant, not proof that the Channel3 retailer received payment or fulfilled the offer.
+- Deploy the simulator and app with credentials server-side. Display: "Simulated merchant catalog and quotes. Real PayPal Sandbox payment lifecycle. No physical order or retailer settlement." Record simulator provenance in receipts alongside actual PayPal evidence.
 
-**Exit gate:** A Channel3 offer can be discovered, deterministically approved, and used in the clearly labeled PayPal Sandbox buyer-approval/capture flow; its verified webhook produces exactly one complete, searchable receipt. Blocked or unapproved proposals cannot create or capture an order. The demo must not claim PayPal settled with or purchased from the Channel3 retailer without a supported merchant/payment integration.
+**Exit gate:** One Nova-generated merchant cart lineage reaches repair when needed, final review, PayPal Sandbox buyer approval/capture, and exactly one verified-webhook receipt. Invalid, incomplete, expired, or unreviewed revisions cannot pay. Simulation and actual PayPal evidence remain distinguishable.
 
 ### Week 4: Elastic Intelligence, Public Demo, and Submission (20 hours) — IN PROGRESS
 
-- [x] Add intent-scoped receipt search with exact status filters, lexical relevance, and semantic ranking when Elasticsearch `semantic_text` inference is available; retain lexical fallback.
-- [x] Add deterministic compliance, violation, repair, user-review, captured-total, and prevented-amount metrics. Read proposal history with ES|QL when Elastic is enabled; never ask a model to calculate metrics.
-- [x] Add idempotent provisioning for bounded Elastic Agent Builder ES|QL tools and a Receipt Analyst. The application retrieves receipts only after backend intent authorization and passes only that scoped evidence plus deterministic metrics to the agent.
-- [x] Finish intent creation, live activity, checkout, receipt/timeline, and analyst user flows, including responsive states and a concise dashboard.
-- [ ] Provision the Agent Builder tools/agent in the target Kibana space and run the complete acceptance scenario from a clean deployed setup.
+- [ ] Complete user-history search, date filters, relevance-ranking evidence, and uncapped pagination under remediation R5; current run history flags some caps but does not guarantee completeness.
+- [ ] Finish metrics complete-data handling, captured-run reconciliation, and Elastic/UI parity under R4-R5; logical run grouping and corrected definitions are implemented, Elastic cap handling remains open.
+- [ ] Attach backend-authorized tools to the provisioned Receipt Analyst and verify actual invocation under R6; provisioning alone does not close this gate.
+- [ ] Complete historical receipt detail/timeline and browser acceptance under R1-R7; autonomous candidate/repair/review/checkout UI and sample-cart removal are implemented.
+- [x] Remove active Channel3/PayPal Catalog discovery services, UI, deployment settings, and MCP launcher; preserve legacy evidence and PayPal OAuth/payment code.
+- [ ] Finish R8 documentation/reference scans, deployment migration, and release acceptance.
+- [ ] Run the complete acceptance scenario from a clean deployed setup after remediation.
 - [ ] Verify the deployed failure states, budget usage, and server-side secret handling; record the functional demo using [docs/demo-script.md](docs/demo-script.md) in under three minutes.
 - [x] Complete README setup steps and architecture/integration documentation; retain the existing license.
 
@@ -63,7 +67,7 @@ The project owner has verified all Week 1–3 work and exit gates complete. Week
 
 ## Verification Plan
 
-1. **Week 1 integration spike:** Retrieve a priced Channel3 offer and its merchant/availability/buy URL; complete a clearly labeled PayPal Sandbox order-to-buyer-approval-to-capture test; optionally verify Channel3 or PayPal MCP tool connectivity; confirm webhook reachability; confirm Elastic capabilities and actual service/model costs fit the $25 cap; deploy a public health-check page.
+1. **Week 1 integration spike:** Retrieve simulator products, explicit terms, and a complete computed quote; verify updates affect quotes and expiry is enforced. Separately verify PayPal Sandbox approval/capture, webhook reachability, Elastic/model access, hosted health, and cost.
 2. **Week 2 automated tests:** Cover contract parsing/clarification, policy rules and evidence, all four decisions, the three-attempt repair ceiling, and the guarantee that payment operations cannot be reached before APPROVE.
 3. **Week 3 integration tests:** Verify only approved orders are created, buyer approval precedes capture, invalid webhook signatures are rejected, duplicate webhook delivery is idempotent, and one AgentReceipt is generated from authoritative PayPal events.
 4. **Week 4 end-to-end test:** Use the PRD laptop scenario to block budget/add-on/recurring violations, repair and revalidate, complete buyer-approved Sandbox capture, persist the receipt from the webhook, search lexically and semantically when configured, verify deterministic ES|QL-backed metrics, and get a grounded Receipt Analyst answer citing retrieved receipt IDs.
@@ -71,21 +75,25 @@ The project owner has verified all Week 1–3 work and exit gates complete. Week
 
 ## Decisions and Scope
 
+- The remediation worklist includes simulator delivery and R8 cleanup. The original four-week estimate is historical; re-estimate the remaining work rather than assuming it fits completed increments.
+- Nova shopping uses simulator facts and bounded repair, followed by final review and mandatory PayPal approval. Missing evidence means HOLD. The simulator is authoritative only for its own disclosed test inventory and quotes, not for external retailers.
+- Configurable merchant inventory, prices, tax/shipping rules, and explicit terms are allowed runtime simulation data. Never hard-code cart choices, required violations, repairs, or successful outcomes in application logic. Test-only provider fixtures cannot fabricate actual payment evidence. Analyst authorization is backend-enforced.
+
 - One developer, four weeks, 20 hours per week. These are weekly delivery increments; formal Scrum sprint length was not separately specified.
 - Use the PRD-recommended React + TypeScript + Tailwind and Java 21 + Spring Boot stack.
 - Public hosted demo required. Hosted third-party services and account signup are allowed, with a total hosted-service and LLM/API budget of at most $25. Elastic Cloud is acceptable only within that cap.
-- Channel3 is the preferred priced-offer discovery source; PayPal Catalog supplies metadata only. PayPal Orders/Checkout and verified webhooks provide the Sandbox payment boundary and evidence. Channel3 MCP is optional for tool-interoperability demonstration; all product results remain advisory inputs to deterministic Java policy.
-- Use Nova Micro for extraction/explanations and Nova Lite for reasoning/repair suggestions through configurable Bedrock model IDs. Validate account access, AWS IAM, JSON parsing, current pricing, and actual cost before enabling production inference. Nova JSON is prompt-generated and backend-validated rather than constrained by Bedrock schema mode.
+- Channel3 and PayPal Catalog are not required product sources in the revised architecture. Remove unused integrations rather than maintaining an unexplained alternate journey. Retain PayPal Orders/Checkout, OAuth, Login where used, and verified webhooks.
+- Use Nova Micro for extraction/explanations and Nova Lite for shopping candidate generation, reasoning, and repair through configurable task IDs. These roles may share model/client infrastructure; they do not require independent agent platforms. Elastic Agent Builder is the separate historical Receipt Analyst.
 - All PRD MUST HAVE items and acceptance criteria are release gates.
 - Buyer approves PayPal checkout; unclear intent is clarified; after three failed repair attempts, user review is required.
-- If PayPal Sandbox or Channel3 offer discovery is blocked after Week 1, pause for access resolution; do not invent offer prices. Keep the integrated demo explicit about the distinction between Sandbox payment to the configured merchant and a retailer purchase.
+- If simulator evidence is incomplete, HOLD. If PayPal or Elastic access is blocked, resolve it; never substitute fake captures, signatures, receipts, or analyst tool executions.
 - No real-money processing. Refunds, disputes, shipment tracking, intent drift, A2A, and other optional/stretch features are out of scope.
 
 ## Risks
 
 1. Four weeks (about 80 hours) is tight for one developer across integrations, AI, search, hosting, documentation, and video. Protect the end-to-end vertical slice and defer optional polish until acceptance flow is stable.
-2. Channel3 access/pricing, PayPal Sandbox, and Elastic Agent Builder/search capabilities may not be available within the $25 cap. Treat Week 1 feasibility and cost checks as hard gates; Channel3 MCP is optional and the backend API keeps its key server-side.
-3. Channel3/PayPal Catalog data may omit reliable RAM, subscription, tax, shipping, or add-on attributes, and offers can change. Preserve source and retrieval time, recheck before checkout, and make the policy hold for required-but-missing facts rather than guessing.
+2. Simulator hosting, Nova usage, PayPal access, and Elastic capabilities must fit the $25 cap. Do not retain unused provider integrations that increase cost or maintenance.
+3. Simulated quotes can become stale or omit facts too. Preserve merchant/quote/version provenance, use explicit unknown states, and revalidate before payment. Never present simulated merchant facts as externally verified retail offers.
 
 ## Repository Touchpoints
 

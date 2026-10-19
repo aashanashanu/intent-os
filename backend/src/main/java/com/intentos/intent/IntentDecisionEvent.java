@@ -16,13 +16,22 @@ public record IntentDecisionEvent(
         BigDecimal calculatedTotal,
         List<PolicyViolation> violations,
         String message,
-        TransactionProposal proposalSnapshot) {
+        TransactionProposal proposalSnapshot,
+        String runId,
+        String revisionId) {
 
     public IntentDecisionEvent(String eventId, String intentId, String proposalId, Instant occurredAt,
             String eventType, ValidationDecision decision, BigDecimal calculatedTotal,
             List<PolicyViolation> violations, String message) {
         this(eventId, intentId, proposalId, occurredAt, eventType, decision,
-                calculatedTotal, violations, message, null);
+            calculatedTotal, violations, message, null, null, null);
+        }
+
+        public IntentDecisionEvent(String eventId, String intentId, String proposalId, Instant occurredAt,
+            String eventType, ValidationDecision decision, BigDecimal calculatedTotal,
+            List<PolicyViolation> violations, String message, TransactionProposal proposalSnapshot) {
+        this(eventId, intentId, proposalId, occurredAt, eventType, decision,
+            calculatedTotal, violations, message, proposalSnapshot, null, null);
     }
 
     public IntentDecisionEvent {

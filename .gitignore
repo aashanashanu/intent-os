@@ -35,6 +35,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 *.pid
+.intentos/
 
 # Terraform local state, provider cache, and uncommitted variable files
 .terraform/

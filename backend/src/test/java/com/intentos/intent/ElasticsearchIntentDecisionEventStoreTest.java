@@ -23,19 +23,22 @@ class ElasticsearchIntentDecisionEventStoreTest {
         server.expect(requestTo("https://elastic.test/_query"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
-                        {"query":"FROM intent-event-v1 | WHERE intentId.keyword == \\"INT-1\\" | KEEP proposalId, eventType, decision, calculatedTotal, occurredAt, message | SORT occurredAt ASC | LIMIT 10000"}
+                        {"query":"FROM intent-event-v1 | WHERE intentId.keyword == \\"INT-1\\" | KEEP proposalId, runId, revisionId, eventType, decision, calculatedTotal, occurredAt, message, violations | SORT occurredAt ASC | LIMIT 10000"}
                         """))
                 .andRespond(withSuccess("""
                         {
                           "columns":[
                             {"name":"proposalId","type":"keyword"},
+                            {"name":"runId","type":"keyword"},
+                            {"name":"revisionId","type":"keyword"},
                             {"name":"eventType","type":"keyword"},
                             {"name":"decision","type":"keyword"},
                             {"name":"calculatedTotal","type":"double"},
                             {"name":"occurredAt","type":"date"},
-                            {"name":"message","type":"keyword"}
+                                                                                                                {"name":"message","type":"keyword"},
+                                                                                                                {"name":"violations","type":"keyword"}
                           ],
-                          "values":[["PROP-1","VALIDATION","BLOCK",1249,"2026-10-13T00:00:01Z","Budget exceeded"]]
+                                                                                                        "values":[["PROP-1","RUN-1","RUN-1-R1","SHOPPING_VALIDATION","BLOCK",1249,"2026-10-13T00:00:01Z","Budget exceeded",["BUDGET_EXCEEDED"]]]
                         }
                         """, MediaType.APPLICATION_JSON));
         ElasticsearchIntentDecisionEventStore store = new ElasticsearchIntentDecisionEventStore(
@@ -45,7 +48,9 @@ class ElasticsearchIntentDecisionEventStoreTest {
 
         assertEquals(1, events.size());
         assertEquals("PROP-1", events.get(0).proposalId());
-        assertEquals("VALIDATION", events.get(0).eventType());
+        assertEquals("RUN-1", events.get(0).runId());
+        assertEquals("SHOPPING_VALIDATION", events.get(0).eventType());
+        assertEquals(1, events.get(0).violationCount());
         assertEquals(0, new BigDecimal("1249.0").compareTo(events.get(0).calculatedTotal()));
         assertEquals(Instant.parse("2026-10-13T00:00:01Z"), events.get(0).occurredAt());
         server.verify();

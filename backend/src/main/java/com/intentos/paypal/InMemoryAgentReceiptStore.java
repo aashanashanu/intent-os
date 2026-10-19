@@ -34,10 +34,22 @@ public class InMemoryAgentReceiptStore implements AgentReceiptStore {
                     || normalizedStatus.equalsIgnoreCase(receipt.finalDecision().name())
                     || receipt.activityTimeline().stream().anyMatch(event -> normalizedStatus.equalsIgnoreCase(event.decision().name()))
                     || receipt.violations().stream().anyMatch(violation -> normalizedStatus.equalsIgnoreCase(violation.type())))
-                .filter(receipt -> normalizedQuery.isEmpty() || searchableText(receipt).contains(normalizedQuery))
+                .filter(receipt -> normalizedQuery.isEmpty() || lexicalScore(receipt, normalizedQuery) > 0)
+                .sorted(Comparator.comparingInt((AgentReceipt receipt) -> lexicalScore(receipt, normalizedQuery)).reversed()
+                    .thenComparing(AgentReceipt::createdAt, Comparator.reverseOrder())
+                    .thenComparing(AgentReceipt::receiptId))
                 .limit(limit)
                 .toList();
     }
+
+            private static int lexicalScore(AgentReceipt receipt, String query) {
+            if (query.isBlank()) return 0;
+            String text = searchableText(receipt);
+            return java.util.Arrays.stream(query.split("\\W+"))
+                .filter(token -> token.length() > 1)
+                .mapToInt(token -> text.contains(token) ? 1 : 0)
+                .sum();
+            }
 
     private static String searchableText(AgentReceipt receipt) {
         StringBuilder text = new StringBuilder()

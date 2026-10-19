@@ -10,4 +10,13 @@ public record DecisionMetricEvent(
         ValidationDecision decision,
         BigDecimal calculatedTotal,
         Instant occurredAt,
-        String message) {}
+                String message,
+                String runId,
+                String revisionId,
+                int violationCount) {
+
+        public DecisionMetricEvent(String proposalId, String eventType, ValidationDecision decision,
+                        BigDecimal calculatedTotal, Instant occurredAt, String message) {
+                this(proposalId, eventType, decision, calculatedTotal, occurredAt, message, null, null, 0);
+        }
+}

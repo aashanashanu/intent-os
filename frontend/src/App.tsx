@@ -33,17 +33,13 @@ type IntentContract = {
   createdAt: string
 }
 
-type RepairResult = {
-  status: 'APPROVED' | 'NEEDS_USER_REVIEW'
-  attempts: number
-  proposal: {
+type TransactionProposal = {
     proposalId: string
     intentId: string
     currency: string
     total: number
     shipping: number
     tax: number
-    offerEvidence?: OfferEvidence[]
     items: Array<{
       name: string
       category: string
@@ -55,9 +51,6 @@ type RepairResult = {
       merchant: string | null
       attributes: Record<string, string>
     }>
-  }
-  explanation: string
-  modelAdvice?: string | null
 }
 
 type AuthSession = {
@@ -70,8 +63,7 @@ type AuthSession = {
 }
 
 type IntegrationStatus = {
-  paypalCatalogConfigured: boolean
-  channel3Configured: boolean
+  simulatedMerchantConfigured: boolean
   elasticAgentBuilderConfigured: boolean
   paypalClientId: string
   paypalWebhookConfigured: boolean
@@ -90,12 +82,15 @@ type AgentReceipt = {
   paypalCaptureId: string
   orderStatus: string
   captureStatus: string
+  finalDecision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
   webhookEventId: string
   createdAt: string
-  proposalHistory: RepairResult['proposal'][]
+  proposalHistory: TransactionProposal[]
   violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
   repairs: DecisionEvent[]
   activityTimeline: DecisionEvent[]
+  runId?: string | null
+  revisionId?: string | null
 }
 
 type ReceiptMetrics = {
@@ -110,9 +105,43 @@ type ReceiptMetrics = {
   violationRate: number
   repairRate: number
   humanInterventionRate: number
+  firstPassCompliantProposals?: number
+  firstPassComplianceRate?: number
+  blockedExposureProposals?: number
+  blockedExposureAmount?: number
 }
 
-type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number }
+type ShoppingRevision = {
+  revisionId: string
+  proposalId: string
+  runId: string
+  revisionNumber: number
+  parentRevisionId: string | null
+  quoteId: string
+  items: Array<{ itemId: string; productId: string; variantId: string; quantity: number }>
+  validationDecision: string | null
+  violationTypes: string[]
+  repairAttempts: number
+}
+
+type ShoppingProposalResult = {
+  run: { runId: string; createdAt: string }
+  revision: ShoppingRevision | null
+  quote: { quoteId: string; status: string; currency: string; subtotal: number; shipping: number | null; tax: number | null; total: number | null; missingEvidence: string[]; disclosure: string; lines: Array<{ product: { name: string; category: string; price: number; attributes: Record<string, string>; purchaseType: 'ONE_TIME' | 'SUBSCRIPTION' | null }; quantity: number }> } | null
+  proposal: TransactionProposal | null
+  validation: PolicyCheck | null
+  outcome: string
+}
+
+type ShoppingHistoryPage = {
+  items: Array<{ intentId: string; goal: string; run: { runId: string; createdAt: string }; revisions: ShoppingRevision[]; status: string; productIds: string[] }>
+  page: number
+  pageSize: number
+  total: number
+  incompleteData: boolean
+}
+
+type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number; eventIds: string[]; runIds: string[]; revisionIds: string[]; retrievalMode: string; narrationMode: string }
 
 type PayPalV6Session = {
   start(options: { presentationMode: 'auto'; orderId: string }): Promise<unknown>
@@ -138,41 +167,6 @@ declare global {
   }
 }
 
-type CatalogProduct = {
-  id: string
-  name: string
-  description?: string
-}
-
-type OfferEvidence = {
-  source: string
-  productId: string
-  productName: string
-  category: string
-  retailer: string
-  offerUrl: string
-  price: number
-  currency: string
-  availability: string
-  attributes: Record<string, string>
-  retrievedAt: string
-}
-
-type Channel3Offer = {
-  productId: string
-  productName: string
-  description: string
-  category: string
-  attributes: Record<string, string>
-  retailer: string
-  offerUrl: string
-  price: number
-  currency: string
-  availability: string
-  condition: string
-  retrievedAt: string
-}
-
 type IntentExtraction = {
   goal: string | null
   maxAmount: number | null
@@ -188,7 +182,7 @@ type IntentExtraction = {
 
 type PolicyCheck = {
   decision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
-  calculatedTotal: number
+  calculatedTotal: number | null
   violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
   recommendations: string[]
 }
@@ -196,6 +190,7 @@ type PolicyCheck = {
 type DecisionEvent = {
   eventId: string
   proposalId: string
+  revisionId?: string | null
   occurredAt: string
   eventType: string
   decision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
@@ -210,20 +205,12 @@ function App() {
   const loginDiagnostic = loginParams.get('paypalLoginStage')
     ? ` (${loginParams.get('paypalLoginStage')} step, HTTP ${loginParams.get('paypalLoginStatus')}, ${loginParams.get('paypalLoginDetail')})`
     : ''
+  const todayLabel = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  }).format(new Date()).toUpperCase()
   const [health, setHealth] = useState<'checking' | 'online' | 'offline'>('checking')
   const [auth, setAuth] = useState<AuthSession>({ authenticated: false, loginConfigured: false })
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null)
-  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
-  const [catalogLoading, setCatalogLoading] = useState(false)
-  const [catalogMessage, setCatalogMessage] = useState('')
-  const [channel3Offers, setChannel3Offers] = useState<Channel3Offer[]>([])
-  const [channel3Loading, setChannel3Loading] = useState(false)
-  const [channel3Message, setChannel3Message] = useState('')
-  const [selectedOffer, setSelectedOffer] = useState<Channel3Offer | null>(null)
-  const [offerTax, setOfferTax] = useState('')
-  const [offerShipping, setOfferShipping] = useState('')
-  const [selectedOfferProposal, setSelectedOfferProposal] = useState<RepairResult['proposal'] | null>(null)
-  const [offerPolicyCheck, setOfferPolicyCheck] = useState<PolicyCheck | null>(null)
   const [request, setRequest] = useState('')
   const [goal, setGoal] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
@@ -237,15 +224,24 @@ function App() {
   const [allowSubscriptions, setAllowSubscriptions] = useState(false)
   const [allowUnrequestedAddons, setAllowUnrequestedAddons] = useState(false)
   const [activeIntent, setActiveIntent] = useState<IntentContract | null>(null)
+  const [shoppingRun, setShoppingRun] = useState<ShoppingProposalResult['run'] | null>(null)
+  const [shoppingProposal, setShoppingProposal] = useState<ShoppingProposalResult | null>(null)
+  const [shoppingReviewId, setShoppingReviewId] = useState('')
+  const [shoppingBusy, setShoppingBusy] = useState(false)
+  const [shoppingCountry, setShoppingCountry] = useState('')
+  const [shoppingRegion, setShoppingRegion] = useState('')
+  const [shoppingShipping, setShoppingShipping] = useState('')
+  const [shoppingHistory, setShoppingHistory] = useState<ShoppingHistoryPage | null>(null)
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyStatus, setHistoryStatus] = useState('')
+  const [historyFrom, setHistoryFrom] = useState('')
+  const [historyTo, setHistoryTo] = useState('')
   const [saving, setSaving] = useState(false)
-  const [repairing, setRepairing] = useState(false)
-  const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
-  const [initialPolicyCheck, setInitialPolicyCheck] = useState<PolicyCheck | null>(null)
-  const [finalPolicyCheck, setFinalPolicyCheck] = useState<PolicyCheck | null>(null)
   const [activityEvents, setActivityEvents] = useState<DecisionEvent[]>([])
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [paymentCapture, setPaymentCapture] = useState<PayPalCapture | null>(null)
   const [agentReceipts, setAgentReceipts] = useState<AgentReceipt[]>([])
+  const [receiptDetail, setReceiptDetail] = useState<AgentReceipt | null>(null)
   const [receiptMetrics, setReceiptMetrics] = useState<ReceiptMetrics | null>(null)
   const [receiptQuery, setReceiptQuery] = useState('')
   const [receiptStatus, setReceiptStatus] = useState('')
@@ -297,6 +293,23 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!auth.authenticated) return
+    const controller = new AbortController()
+    fetch('/api/shopping-history?page=0&pageSize=50', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Shopping history could not be loaded.')
+        setShoppingHistory(await response.json() as ShoppingHistoryPage)
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setNotice(error instanceof Error ? error.message : 'Shopping history could not be loaded.')
+          setNoticeKind('error')
+        }
+      })
+    return () => controller.abort()
+  }, [auth.authenticated])
+
+  useEffect(() => {
     const controller = new AbortController()
     fetch('/api/auth/session', { signal: controller.signal })
       .then((response) => response.json())
@@ -337,17 +350,16 @@ function App() {
       if (!response.ok) throw new Error('The API rejected this intent. Check the required fields and try again.')
       const createdIntent = await response.json() as IntentContract
       setActiveIntent(createdIntent)
+      const runResponse = await fetch(`/api/intents/${createdIntent.intentId}/shopping-runs`, {
+        method: 'POST',
+        headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {},
+      })
+      if (!runResponse.ok) throw new Error('Intent saved, but a shopping run could not be started.')
+      const createdRun = await runResponse.json() as ShoppingProposalResult['run']
+      setShoppingRun(createdRun)
+      setShoppingProposal(null)
+      setShoppingReviewId('')
       void loadReceiptMetrics(createdIntent.intentId)
-      setRepairResult(null)
-      setChannel3Offers([])
-      setChannel3Message('')
-      setSelectedOffer(null)
-      setSelectedOfferProposal(null)
-      setOfferPolicyCheck(null)
-      setOfferTax('')
-      setOfferShipping('')
-      setInitialPolicyCheck(null)
-      setFinalPolicyCheck(null)
       setActivityEvents([])
       setAgentReceipts([])
       setReceiptMetrics(null)
@@ -414,6 +426,173 @@ function App() {
     void loadReceiptMetrics(intentId)
   }
 
+  async function loadShoppingHistory() {
+    const parameters = new URLSearchParams({ page: '0', pageSize: '50', q: historyQuery, status: historyStatus })
+    if (historyFrom) parameters.set('from', new Date(historyFrom).toISOString())
+    if (historyTo) parameters.set('to', new Date(historyTo).toISOString())
+    const response = await fetch(`/api/shopping-history?${parameters}`)
+    if (!response.ok) throw new Error(response.status === 401 ? 'Sign in to view shopping history.' : 'Shopping history could not be loaded.')
+    setShoppingHistory(await response.json() as ShoppingHistoryPage)
+  }
+
+  async function openShoppingRun(entry: ShoppingHistoryPage['items'][number]) {
+    try {
+      const intentResponse = await fetch(`/api/intents/${entry.intentId}`)
+      if (!intentResponse.ok) throw new Error('This intent is no longer accessible.')
+      const intent = await intentResponse.json() as IntentContract
+      setActiveIntent(intent)
+      const restoredRun = { ...entry.run, intentId: entry.intentId }
+      setShoppingRun(restoredRun)
+      const latestRevision = entry.revisions.at(-1) ?? null
+        let quote: ShoppingProposalResult['quote'] = null
+        let proposal: TransactionProposal | null = null
+        if (latestRevision) {
+          const quoteResponse = await fetch(`/api/intents/${entry.intentId}/merchant/quotes/${latestRevision.quoteId}`)
+          if (quoteResponse.ok) {
+            quote = await quoteResponse.json() as NonNullable<ShoppingProposalResult['quote']>
+            proposal = {
+              proposalId: latestRevision.proposalId,
+              intentId: entry.intentId,
+              currency: quote.currency,
+              total: quote.total ?? 0,
+              shipping: quote.shipping ?? 0,
+              tax: quote.tax ?? 0,
+              items: quote.lines.map((line) => ({
+                name: line.product.name,
+                category: line.product.category,
+                quantity: line.quantity,
+                unitPrice: line.product.price ?? 0,
+                recurring: line.product.purchaseType === 'SUBSCRIPTION',
+                subscription: line.product.purchaseType === 'SUBSCRIPTION',
+                addOn: false,
+                merchant: 'simulated merchant',
+                attributes: line.product.attributes,
+              })),
+            }
+          }
+        }
+        setShoppingProposal({ run: restoredRun, revision: latestRevision, quote, proposal, validation: null,
+          outcome: 'Historical run restored. The stored quote is shown as immutable evidence and has not been revalidated.' })
+      setShoppingReviewId('')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not open this shopping run.')
+      setNoticeKind('error')
+    }
+  }
+
+  async function startShoppingRun() {
+    if (!activeIntent) return
+    setShoppingBusy(true)
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs`, {
+        method: 'POST', headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {},
+      })
+      if (!response.ok) throw new Error('A new shopping run could not be created.')
+      setShoppingRun(await response.json() as ShoppingProposalResult['run'])
+      setShoppingProposal(null)
+      setShoppingReviewId('')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not create a shopping run.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+    }
+  }
+
+  async function proposeShopping() {
+    if (!activeIntent || !shoppingRun) return
+    setShoppingBusy(true)
+    setShoppingReviewId('')
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${shoppingRun.runId}/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
+        body: JSON.stringify({ country: shoppingCountry.trim(), region: shoppingRegion.trim(), shippingMethod: shoppingShipping.trim() }),
+      })
+      if (!response.ok) throw new Error(response.status === 503 ? 'Nova shopping is unavailable; no proposal or payment was created.' : 'Shopping proposal failed closed.')
+      setShoppingProposal(await response.json() as ShoppingProposalResult)
+      await refreshIntentActivity(activeIntent.intentId)
+      void loadShoppingHistory()
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Shopping proposal failed.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+    }
+  }
+
+  async function repairShopping() {
+    if (!activeIntent || !shoppingRun || !shoppingProposal?.revision) return
+    setShoppingBusy(true)
+    setShoppingReviewId('')
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${shoppingRun.runId}/revisions/${shoppingProposal.revision.revisionId}/repair`, {
+        method: 'POST', headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {},
+      })
+      if (!response.ok) throw new Error(response.status === 409 ? 'No further safe repair is available. Review the cart manually.' : 'Repair could not be completed.')
+      setShoppingProposal(await response.json() as ShoppingProposalResult)
+      await refreshIntentActivity(activeIntent.intentId)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Repair failed.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+    }
+  }
+
+  async function reviewShoppingRevision() {
+    if (!activeIntent || !shoppingRun || !shoppingProposal?.revision) return
+    setShoppingBusy(true)
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${shoppingRun.runId}/revisions/${shoppingProposal.revision.revisionId}/review`, {
+        method: 'POST', headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {},
+      })
+      if (!response.ok) throw new Error('This revision is no longer eligible for review. Refresh the quote or inspect the policy findings.')
+      const review = await response.json() as { reviewId: string }
+      setShoppingReviewId(review.reviewId)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Final review failed.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+    }
+  }
+
+  async function checkoutShoppingRevision() {
+    if (!activeIntent || !shoppingRun || !shoppingProposal?.revision || !shoppingReviewId || !integrations?.paypalClientId) return
+    setCheckoutBusy(true)
+    const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
+    try {
+      const orderResponse = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${shoppingRun.runId}/revisions/${shoppingProposal.revision.revisionId}/orders`, { method: 'POST', headers })
+      if (!orderResponse.ok) throw new Error('The reviewed quote or current intent policy changed. Requote and review the current cart.')
+      const order = await orderResponse.json() as PayPalOrder
+      await loadPayPalV6(integrations.paypalClientId)
+      if (!window.paypal) throw new Error('PayPal checkout SDK is unavailable.')
+      const paypal = await window.paypal.createInstance({ clientId: integrations.paypalClientId, components: ['paypal-payments'], pageType: 'checkout' })
+      const session = paypal.createPayPalOneTimePaymentSession({
+        onApprove: async (approval) => {
+          if (approval.orderId !== order.orderId) throw new Error('PayPal approved a different order.')
+          const captureResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders/${order.orderId}/capture`, { method: 'POST', headers })
+          if (!captureResponse.ok) throw new Error('Server-side capture was rejected by current authorization checks.')
+          setPaymentCapture(await captureResponse.json() as PayPalCapture)
+          await refreshIntentActivity(activeIntent.intentId)
+          await loadReceiptMetrics(activeIntent.intentId)
+          await loadShoppingHistory()
+          setNotice('PayPal capture returned. The verified webhook will finalize the receipt.')
+          setNoticeKind('success')
+        },
+        onCancel: () => { setNotice('PayPal checkout was cancelled. No capture was requested.'); setNoticeKind('error') },
+        onError: () => { setNotice('PayPal checkout failed. No client-side capture was attempted.'); setNoticeKind('error') },
+      })
+      await session.start({ presentationMode: 'auto', orderId: order.orderId })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not start PayPal checkout.')
+      setNoticeKind('error')
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }
+
   async function loadReceiptMetrics(intentId: string) {
     const response = await fetch(`/api/intents/${intentId}/receipts/metrics`)
     if (response.ok) setReceiptMetrics(await response.json() as ReceiptMetrics)
@@ -432,6 +611,17 @@ function App() {
       setNoticeKind('error')
     } finally {
       setReceiptsLoading(false)
+    }
+  }
+
+  async function openReceiptDetail(receipt: AgentReceipt) {
+    try {
+      const response = await fetch(`/api/intents/${receipt.intentId}/receipts/${receipt.receiptId}`)
+      if (!response.ok) throw new Error('Receipt detail is not available for this intent.')
+      setReceiptDetail(await response.json() as AgentReceipt)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not load receipt detail.')
+      setNoticeKind('error')
     }
   }
 
@@ -460,106 +650,6 @@ function App() {
     }
   }
 
-  async function searchOffers() {
-    if (!activeIntent) return
-    setChannel3Loading(true)
-    setChannel3Message('')
-    setChannel3Offers([])
-    setSelectedOffer(null)
-    setSelectedOfferProposal(null)
-    setOfferPolicyCheck(null)
-    try {
-      const response = await fetch(`/api/intents/${activeIntent.intentId}/offers`)
-      if (!response.ok) throw new Error(response.status === 401
-        ? 'Sign in with PayPal to search product offers.'
-        : response.status === 503
-          ? 'Channel3 offer search is not configured on the backend.'
-          : 'Channel3 offer search failed.')
-      const offers = await response.json() as Channel3Offer[]
-      setChannel3Offers(offers)
-      setChannel3Message(offers.length
-        ? `${offers.length} in-stock offer${offers.length === 1 ? '' : 's'} returned. Prices can change; the selected offer will be checked again before checkout.`
-        : 'No matching in-stock offers were found.')
-    } catch (error) {
-      setChannel3Message(error instanceof Error ? error.message : 'Could not search Channel3 offers.')
-    } finally {
-      setChannel3Loading(false)
-    }
-  }
-
-  function chooseOffer(offer: Channel3Offer) {
-    setSelectedOffer(offer)
-    setOfferTax('')
-    setOfferShipping('')
-    setSelectedOfferProposal(null)
-    setOfferPolicyCheck(null)
-    setPaymentCapture(null)
-  }
-
-  async function validateSelectedOffer() {
-    if (!activeIntent || !selectedOffer) return
-    if (offerTax.trim() === '' || offerShipping.trim() === '') {
-      setNotice('Enter the confirmed tax and shipping amounts. Use 0 only when you have verified there is no charge.')
-      setNoticeKind('error')
-      return
-    }
-    const tax = Number(offerTax)
-    const shipping = Number(offerShipping)
-    if (!Number.isFinite(tax) || !Number.isFinite(shipping) || tax < 0 || shipping < 0) {
-      setNotice('Tax and shipping must be confirmed amounts of zero or more.')
-      setNoticeKind('error')
-      return
-    }
-    const proposal: RepairResult['proposal'] = {
-      proposalId: `PROP-${crypto.randomUUID()}`,
-      intentId: activeIntent.intentId,
-      currency: selectedOffer.currency,
-      items: [{
-        name: selectedOffer.productName,
-        category: selectedOffer.category,
-        quantity: 1,
-        unitPrice: selectedOffer.price,
-        recurring: false,
-        subscription: false,
-        addOn: false,
-        merchant: selectedOffer.retailer,
-        attributes: selectedOffer.attributes,
-      }],
-      shipping,
-      tax,
-      total: selectedOffer.price + tax + shipping,
-      offerEvidence: [{
-        source: 'channel3',
-        productId: selectedOffer.productId,
-        productName: selectedOffer.productName,
-        category: selectedOffer.category,
-        retailer: selectedOffer.retailer,
-        offerUrl: selectedOffer.offerUrl,
-        price: selectedOffer.price,
-        currency: selectedOffer.currency,
-        availability: selectedOffer.availability,
-        attributes: selectedOffer.attributes,
-        retrievedAt: selectedOffer.retrievedAt,
-      }],
-    }
-    setSelectedOfferProposal(proposal)
-    setOfferPolicyCheck(null)
-    setNotice('')
-    const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
-    try {
-      const response = await fetch(`/api/intents/${activeIntent.intentId}/validation`, {
-        method: 'POST', headers, body: JSON.stringify(proposal),
-      })
-      if (!response.ok) throw new Error('Could not validate this offer against the intent.')
-      const result = await response.json() as PolicyCheck
-      setOfferPolicyCheck(result)
-      await refreshIntentActivity(activeIntent.intentId)
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Offer validation failed.')
-      setNoticeKind('error')
-    }
-  }
-
   function loadPayPalV6(clientId: string) {
     if (window.paypal) return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
@@ -578,141 +668,6 @@ function App() {
       script.dataset.clientId = clientId
       document.head.append(script)
     })
-  }
-
-  async function startCheckout() {
-    if (!activeIntent || !selectedOfferProposal || offerPolicyCheck?.decision !== 'APPROVE' || !integrations?.paypalClientId) return
-    setCheckoutBusy(true)
-    setPaymentCapture(null)
-    setNotice('')
-    const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
-    try {
-      const orderResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders`, {
-        method: 'POST', headers, body: JSON.stringify(selectedOfferProposal),
-      })
-      if (!orderResponse.ok) throw new Error(orderResponse.status === 409
-        ? 'The offer changed or the proposal no longer passes policy validation. Search again, review the current price, and revalidate.'
-        : 'PayPal order creation failed.')
-      const order = await orderResponse.json() as PayPalOrder
-      await loadPayPalV6(integrations.paypalClientId)
-      if (!window.paypal) throw new Error('PayPal checkout SDK is unavailable.')
-      const paypal = await window.paypal.createInstance({
-        clientId: integrations.paypalClientId,
-        components: ['paypal-payments'],
-        pageType: 'checkout',
-      })
-      const session = paypal.createPayPalOneTimePaymentSession({
-        onApprove: async (approval) => {
-          if (approval.orderId !== order.orderId) throw new Error('PayPal approved a different order than the validated checkout.')
-          const captureResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders/${order.orderId}/capture`, {
-            method: 'POST', headers,
-          })
-          if (!captureResponse.ok) throw new Error('Server-side PayPal capture failed after buyer approval.')
-          setPaymentCapture(await captureResponse.json() as PayPalCapture)
-          await refreshIntentActivity(activeIntent.intentId)
-          await searchReceipts()
-          await loadReceiptMetrics(activeIntent.intentId)
-          setNotice('Payment capture returned. The verified PayPal webhook will finalize the AgentReceipt.')
-          setNoticeKind('success')
-        },
-        onCancel: () => {
-          setNotice('PayPal checkout was cancelled. No capture was requested.')
-          setNoticeKind('error')
-        },
-        onError: () => {
-          setNotice('PayPal checkout could not be completed. No client-side capture was attempted.')
-          setNoticeKind('error')
-        },
-      })
-      await session.start({ presentationMode: 'auto', orderId: order.orderId })
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not start PayPal checkout.')
-      setNoticeKind('error')
-    } finally {
-      setCheckoutBusy(false)
-    }
-  }
-
-  async function runRepair() {
-    if (!activeIntent) return
-    setRepairing(true)
-    setNotice('')
-    setRepairResult(null)
-    setInitialPolicyCheck(null)
-    setFinalPolicyCheck(null)
-    try {
-      const proposal = {
-        proposalId: `PROP-${crypto.randomUUID()}`,
-        intentId: activeIntent.intentId,
-        currency: activeIntent.currency,
-        items: [
-          { name: 'Development laptop', category: 'laptop', quantity: 1, unitPrice: 899, attributes: { ram: '32GB' } },
-          { name: 'Extended warranty', category: 'laptop', quantity: 1, unitPrice: 199, addOn: true },
-          { name: 'Antivirus subscription', category: 'laptop', quantity: 1, unitPrice: 79, recurring: true, subscription: true, addOn: true },
-        ],
-        shipping: 0,
-        tax: 72,
-        total: 1249,
-      }
-      const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
-      const initialResponse = await fetch(`/api/intents/${activeIntent.intentId}/validation`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(proposal),
-      })
-      if (!initialResponse.ok) throw new Error('The policy check failed. Check the API and try again.')
-      const initialCheck = await initialResponse.json() as PolicyCheck
-      setInitialPolicyCheck(initialCheck)
-      await refreshIntentActivity(activeIntent.intentId)
-      if (initialCheck.decision === 'HOLD') {
-        setNotice('This intent needs clarification before its proposal can be repaired.')
-        setNoticeKind('error')
-        return
-      }
-
-      const response = await fetch(`/api/intents/${activeIntent.intentId}/repair`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(proposal),
-      })
-      if (!response.ok) throw new Error('The repair request failed. Check the API and try again.')
-      const result = await response.json() as RepairResult
-      setRepairResult(result)
-
-      const finalResponse = await fetch(`/api/intents/${activeIntent.intentId}/validation`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(result.proposal),
-      })
-      if (!finalResponse.ok) throw new Error('The repaired proposal could not be revalidated.')
-      setFinalPolicyCheck(await finalResponse.json() as PolicyCheck)
-      await refreshIntentActivity(activeIntent.intentId)
-      const eventsResponse = await fetch(`/api/intents/${activeIntent.intentId}/events`)
-      if (eventsResponse.ok) setActivityEvents(await eventsResponse.json() as DecisionEvent[])
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not run proposal repair.')
-      setNoticeKind('error')
-    } finally {
-      setRepairing(false)
-    }
-  }
-
-  async function loadCatalog() {
-    setCatalogLoading(true)
-    setCatalogMessage('')
-    try {
-      const response = await fetch('/api/catalog/products?page=1&pageSize=20')
-      if (!response.ok) throw new Error(response.status === 401 ? 'Sign in with PayPal to browse the catalog.' : 'PayPal Catalog request failed. Check Sandbox access.')
-      const result = await response.json()
-      setCatalogProducts(Array.isArray(result.products) ? result.products : [])
-      setCatalogMessage(Array.isArray(result.products) && result.products.length
-        ? `${result.products.length} product records loaded.`
-        : 'No products are listed in this PayPal catalog yet.')
-    } catch (error) {
-      setCatalogMessage(error instanceof Error ? error.message : 'Could not load the catalog.')
-    } finally {
-      setCatalogLoading(false)
-    }
   }
 
   async function explainDecision() {
@@ -746,16 +701,15 @@ function App() {
         <nav className="nav-list">
           <a className="nav-item active" href="#dashboard"><LayoutDashboard size={17} />Overview</a>
           <a className="nav-item" href="#intents"><ShieldCheck size={17} />Intent policies</a>
+          <a className="nav-item" href="#shopping-history"><ReceiptText size={17} />Shopping history</a>
           <a className="nav-item" href="#receipts"><ReceiptText size={17} />Agent receipts</a>
           <a className="nav-item" href="#activity"><Activity size={17} />Agent activity</a>
-          <a className="nav-item" href="#offers"><Search size={17} />Retailer offers</a>
-          <a className="nav-item" href="#catalog"><ShoppingBag size={17} />PayPal catalog</a>
         </nav>
 
         <div className="sidebar-spacer" />
         <div className="sandbox-card">
           <div className="sandbox-icon"><LockKeyhole size={16} /></div>
-          <div><strong>Sandbox mode</strong><span>Payments are simulated</span></div>
+          <div><strong>PayPal Sandbox</strong><span>Buyer approval required</span></div>
           <span className="live-dot" aria-label="Sandbox active" />
         </div>
         <div className="profile-row">
@@ -779,7 +733,7 @@ function App() {
         <div className="page-content">
           <section className="page-heading">
             <div>
-              <div className="eyebrow"><span className="eyebrow-rule" />THURSDAY, OCTOBER 8, 2026</div>
+              <div className="eyebrow"><span className="eyebrow-rule" />{todayLabel}</div>
               <h1>Purchase control</h1>
               <p className="heading-copy">Your agents, operating within your intent.</p>
             </div>
@@ -789,8 +743,8 @@ function App() {
           <section className="metrics" aria-label="Purchase summary">
             <div className="metric-cell"><div className="metric-icon ink"><ShoppingBag size={17} /></div><div className="metric-label">Approved proposals</div><div className="metric-value">{receiptMetrics?.approvedProposals ?? 0} <span>of {receiptMetrics?.totalProposals ?? 0}</span></div></div>
             <div className="metric-cell"><div className="metric-icon coral"><ShieldCheck size={17} /></div><div className="metric-label">Violating proposals</div><div className="metric-value">{receiptMetrics?.violatingProposals ?? 0} <span>detected</span></div></div>
-            <div className="metric-cell"><div className="metric-icon green"><CircleDollarSign size={17} /></div><div className="metric-label">Spend prevented</div><div className="metric-value">${(receiptMetrics?.preventedAmount ?? 0).toFixed(2)}</div></div>
-            <div className="metric-cell"><div className="metric-icon blue"><FileCheck2 size={17} /></div><div className="metric-label">Intent compliance</div><div className="metric-value">{receiptMetrics ? `${(receiptMetrics.intentComplianceRate * 100).toFixed(0)}%` : '—'} <span>{receiptMetrics ? `${receiptMetrics.totalProposals} proposals` : 'no decisions yet'}</span></div></div>
+            <div className="metric-cell"><div className="metric-icon green"><CircleDollarSign size={17} /></div><div className="metric-label">Prevented on approved repairs</div><div className="metric-value">${(receiptMetrics?.preventedAmount ?? 0).toFixed(2)}</div></div>
+            <div className="metric-cell"><div className="metric-icon blue"><FileCheck2 size={17} /></div><div className="metric-label">Final run compliance</div><div className="metric-value">{receiptMetrics ? `${(receiptMetrics.intentComplianceRate * 100).toFixed(0)}%` : '—'} <span>{receiptMetrics ? `${receiptMetrics.approvedProposals} of ${receiptMetrics.totalProposals} runs` : 'no decisions yet'}</span></div></div>
           </section>
 
           <div className="workspace-grid">
@@ -835,11 +789,47 @@ function App() {
                   </div>
                 </form>
                 {notice && <p className={`notice ${noticeKind}`} role="status"><Check size={14} />{notice}</p>}
-                {activeIntent && <article className="saved-contract"><div className="draft-row"><div className="draft-status"><ShieldCheck size={15} /></div><div className="draft-copy"><p>{activeIntent.goal}</p><span>{activeIntent.intentId} · In-memory contract</span></div><strong className="contract-budget">${activeIntent.maxAmount.toFixed(2)}</strong></div><button className="repair-button" onClick={runRepair} disabled={repairing}><ShieldCheck size={14} />{repairing ? 'Checking and repairing…' : 'Run sample proposal repair'}</button></article>}
-                {initialPolicyCheck && <div className={`validation-result ${initialPolicyCheck.decision === 'APPROVE' ? 'approved' : initialPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Initial validation · {initialPolicyCheck.decision}</strong><span>Calculated ${initialPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{initialPolicyCheck.violations.length > 0 ? <ul>{initialPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
-                {repairResult && <div className={`repair-result ${repairResult.status === 'APPROVED' ? 'approved' : 'review'}`} role="status"><div className="repair-result-heading"><strong>{repairResult.status === 'APPROVED' ? 'Proposal repaired' : 'User review required'}</strong><span>{repairResult.attempts} repair {repairResult.attempts === 1 ? 'pass' : 'passes'}</span></div><p>{repairResult.explanation}</p>{repairResult.modelAdvice && <p className="model-advice"><strong>Model suggestion · advisory</strong><span>{repairResult.modelAdvice}</span></p>}<div className="repair-items">{repairResult.proposal.items.map((item) => <div key={item.name}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}<div className="repair-total"><span>Recalculated total</span><strong>${repairResult.proposal.total.toFixed(2)}</strong></div></div><small>Sample proposal only. No Channel3 retailer checkout or PayPal payment was created.</small></div>}
-                {finalPolicyCheck && <div className={`validation-result ${finalPolicyCheck.decision === 'APPROVE' ? 'approved' : finalPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Revalidation · {finalPolicyCheck.decision}</strong><span>Calculated ${finalPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{finalPolicyCheck.violations.length > 0 ? <ul>{finalPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong>{violation.item ? ` · ${violation.item}` : ''}<span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
+                {activeIntent && <article className="saved-contract"><div className="draft-row"><div className="draft-status"><ShieldCheck size={15} /></div><div className="draft-copy"><p>{activeIntent.goal}</p><span>{activeIntent.intentId} · Intent policy</span></div><strong className="contract-budget">${activeIntent.maxAmount.toFixed(2)}</strong></div></article>}
                 {paymentCapture && <div className="capture-confirmation" role="status"><strong>PayPal returned {paymentCapture.status}</strong><span>{paymentCapture.captureId} · {paymentCapture.currency} {paymentCapture.amount.toFixed(2)}</span></div>}
+              </section>
+
+              <section className="activity-section shopping-section" id="shopping-run">
+                <div className="section-heading activity-heading">
+                  <div><h2>Nova shopping run</h2><p>Candidate selection from the simulated merchant catalog</p></div>
+                  <button className="text-button" onClick={startShoppingRun} disabled={!activeIntent || shoppingBusy}><Plus size={14} />New run</button>
+                </div>
+                <div className="simulator-disclosure">Simulated merchant catalog and quotes. Real PayPal Sandbox payment lifecycle. No physical order or retailer settlement.</div>
+                {!activeIntent && <div className="catalog-empty">Create or reopen an intent to start a shopping run.</div>}
+                {activeIntent && <>
+                  <div className="shopping-destination">
+                    <label className="form-field"><span>Country</span><input value={shoppingCountry} onChange={(event) => setShoppingCountry(event.target.value.toUpperCase())} maxLength={2} placeholder="US" /></label>
+                    <label className="form-field"><span>Region</span><input value={shoppingRegion} onChange={(event) => setShoppingRegion(event.target.value.toUpperCase())} maxLength={8} placeholder="CA" /></label>
+                    <label className="form-field"><span>Shipping method</span><input value={shoppingShipping} onChange={(event) => setShoppingShipping(event.target.value)} placeholder="standard" /></label>
+                  </div>
+                  <div className="shopping-run-bar">
+                    <span>{shoppingRun ? `${shoppingRun.runId} · ${new Date(shoppingRun.createdAt).toLocaleString()}` : 'No active run'}</span>
+                    <button className="primary-button" onClick={proposeShopping} disabled={!shoppingRun || !shoppingCountry.trim() || !shoppingRegion.trim() || !shoppingShipping.trim() || shoppingBusy}>
+                      <Sparkles size={14} />{shoppingBusy ? 'Searching and evaluating…' : 'Find and evaluate cart'}
+                    </button>
+                  </div>
+                </>}
+                {shoppingProposal && <div className={`shopping-result ${shoppingProposal.validation?.decision === 'APPROVE' ? 'approved' : shoppingProposal.validation?.decision === 'BLOCK' ? 'blocked' : 'review'}`}>
+                  <div className="repair-result-heading"><strong>{shoppingProposal.validation?.decision ?? shoppingProposal.revision?.validationDecision ?? shoppingProposal.quote?.status ?? 'No selection'}</strong><span>{shoppingProposal.revision?.revisionId ?? shoppingProposal.run.runId}</span></div>
+                  <p>{shoppingProposal.outcome}</p>
+                  {shoppingProposal.quote && <>
+                    <p className="simulator-disclosure">{shoppingProposal.quote.disclosure}</p>
+                    {shoppingProposal.proposal && <div className="repair-items">{shoppingProposal.proposal.items.map((item) => <div key={`${item.name}-${item.category}`}><span>{item.quantity} × {item.name}</span><strong>{shoppingProposal.quote?.currency} {(item.unitPrice * item.quantity).toFixed(2)}</strong></div>)}
+                      <div><span>Shipping</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.shipping?.toFixed(2) ?? 'Unknown'}</strong></div>
+                      <div><span>Tax</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.tax?.toFixed(2) ?? 'Unknown'}</strong></div>
+                      <div className="repair-total"><span>Quoted total</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.total?.toFixed(2) ?? 'HOLD'}</strong></div>
+                    </div>}
+                    {shoppingProposal.quote.missingEvidence.length > 0 && <p>Missing evidence: {shoppingProposal.quote.missingEvidence.join(', ')}</p>}
+                  </>}
+                  {shoppingProposal.revision?.violationTypes.length ? <p>Policy findings: {shoppingProposal.revision.violationTypes.join(', ')}</p> : null}
+                  {shoppingProposal.revision && shoppingProposal.validation?.decision !== 'APPROVE' && <button className="secondary-button" onClick={repairShopping} disabled={shoppingBusy}><ShieldCheck size={14} />{shoppingBusy ? 'Repairing…' : 'Attempt safe repair'}</button>}
+                  {shoppingProposal.revision && shoppingProposal.validation?.decision === 'APPROVE' && !shoppingReviewId && <button className="secondary-button" onClick={reviewShoppingRevision} disabled={shoppingBusy}><Check size={14} />Review this exact cart</button>}
+                  {shoppingReviewId && <div className="sandbox-checkout-note"><strong>Cart review recorded</strong><span>Review {shoppingReviewId} is bound to {shoppingProposal.revision?.revisionId} and its quote.</span><button className="primary-button checkout-button" onClick={checkoutShoppingRevision} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Opening PayPal…' : !auth.authenticated ? 'Sign in to continue' : 'Continue to PayPal approval'}</button></div>}
+                </div>}
               </section>
 
               <section className="activity-section" id="activity">
@@ -849,6 +839,24 @@ function App() {
                 </div>
                 {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No agent activity yet</strong><span>Validated proposals and repair decisions will appear here.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.proposalId} · ${event.calculatedTotal.toFixed(2)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><small>{event.message}</small>{event.violations.length > 0 && <small>{event.violations.map((violation) => violation.type.replaceAll('_', ' ')).join(' · ')}</small>}</div></article>)}</div>}
                 {modelExplanation && <p className="model-explanation" role="status"><strong>Evidence-based explanation</strong>{modelExplanation}</p>}
+              </section>
+
+              <section className="activity-section history-section" id="shopping-history">
+                <div className="section-heading activity-heading"><div><h2>Shopping history</h2><p>Decision runs, including blocked and review-required proposals</p></div><button className="text-button" onClick={() => void loadShoppingHistory()} disabled={!auth.authenticated}><RefreshCw size={14} />Refresh</button></div>
+                <form className="history-filters" onSubmit={(event) => { event.preventDefault(); void loadShoppingHistory() }}>
+                  <label className="form-field"><span>Search</span><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Goal or product ID" /></label>
+                  <label className="form-field"><span>Status</span><select value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)}><option value="">Any status</option><option value="APPROVE">Approved</option><option value="BLOCK">Blocked</option><option value="HOLD">Needs review</option><option value="MODIFY">Modify</option></select></label>
+                  <label className="form-field"><span>From</span><input type="datetime-local" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} /></label>
+                  <label className="form-field"><span>To</span><input type="datetime-local" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} /></label>
+                  <button className="secondary-button" type="submit" disabled={!auth.authenticated}><Search size={14} />Filter</button>
+                </form>
+                {shoppingHistory?.incompleteData && <p className="history-warning">Some stored results may exceed the current backend retrieval cap.</p>}
+                {!auth.authenticated && <div className="catalog-empty">Sign in with PayPal to view owner-scoped history.</div>}
+                {auth.authenticated && shoppingHistory?.items.length === 0 && <div className="empty-activity"><strong>No shopping runs found</strong><span>Runs appear here whether they were captured, blocked, or held for review.</span></div>}
+                {shoppingHistory?.items.map((entry) => <article className="history-row" key={entry.run.runId}>
+                  <div className={`event-indicator ${entry.status.toLowerCase()}`}><Activity size={14} /></div><div className="event-copy"><strong>{entry.goal} · {entry.status}</strong><span>{entry.run.runId} · {entry.revisions.length} revision{entry.revisions.length === 1 ? '' : 's'} · {entry.productIds.join(', ') || 'No cart yet'}</span><small>{new Date(entry.run.createdAt).toLocaleString()} · intent {entry.intentId}</small></div><button className="icon-button" aria-label={`Open run ${entry.run.runId}`} onClick={() => void openShoppingRun(entry)}><ArrowUpRight size={15} /></button>
+                </article>)}
+                {shoppingHistory && shoppingHistory.total > shoppingHistory.items.length && <button className="text-button" onClick={() => { const next = shoppingHistory.page + 1; const params = new URLSearchParams({ page: String(next), pageSize: String(shoppingHistory.pageSize), q: historyQuery, status: historyStatus }); if (historyFrom) params.set('from', new Date(historyFrom).toISOString()); if (historyTo) params.set('to', new Date(historyTo).toISOString()); void fetch(`/api/shopping-history?${params}`).then((response) => response.json()).then((page: ShoppingHistoryPage) => setShoppingHistory((current) => current ? { ...page, items: [...current.items, ...page.items] } : page)) }}>Load more</button>}
               </section>
 
               <section className="activity-section receipt-section" id="receipts">
@@ -862,6 +870,8 @@ function App() {
                   <div><span>Violations</span><strong>{receiptMetrics.violatingProposals}</strong></div>
                   <div><span>Repaired</span><strong>{receiptMetrics.repairedProposals}</strong></div>
                   <div><span>Prevented</span><strong>USD {receiptMetrics.preventedAmount.toFixed(2)}</strong></div>
+                  <div><span>Blocked exposure · not savings</span><strong>USD {receiptMetrics.blockedExposureAmount?.toFixed(2) ?? '0.00'}</strong></div>
+                  <div><span>First-pass compliance</span><strong>{((receiptMetrics.firstPassComplianceRate ?? 0) * 100).toFixed(0)}%</strong></div>
                   <div><span>Captured</span><strong>USD {receiptMetrics.capturedAmount.toFixed(2)}</strong></div>
                 </div>}
                 <form className="receipt-search-form" onSubmit={(event) => { event.preventDefault(); void searchReceipts() }}>
@@ -879,54 +889,15 @@ function App() {
                 </form>
                 {agentReceipts.length === 0
                   ? <div className="empty-activity"><div className="empty-glyph"><ReceiptText size={20} /></div><strong>No matching receipts</strong><span>Completed receipts appear after a verified PayPal capture webhook.</span></div>
-                  : <div className="receipt-list">{agentReceipts.map((receipt) => <article className="receipt-row" key={receipt.receiptId}><div className="event-indicator approve"><ReceiptText size={14} /></div><div className="event-copy"><strong>{receipt.currency} {receipt.amount.toFixed(2)} · {receipt.captureStatus}</strong><span>{receipt.paypalCaptureId} · Order {receipt.paypalOrderId}</span><small>{receipt.proposalHistory.length} proposal snapshot{receipt.proposalHistory.length === 1 ? '' : 's'} · {receipt.repairs.length} repair event{receipt.repairs.length === 1 ? '' : 's'} · webhook {receipt.webhookEventId}</small><small>{new Date(receipt.createdAt).toLocaleString()}</small></div></article>)}</div>}
+                  : <div className="receipt-list">{agentReceipts.map((receipt) => <article className="receipt-row" key={receipt.receiptId}><div className="event-indicator approve"><ReceiptText size={14} /></div><div className="event-copy"><strong>{receipt.currency} {receipt.amount.toFixed(2)} · {receipt.captureStatus}</strong><span>{receipt.paypalCaptureId} · Order {receipt.paypalOrderId}</span><small>{receipt.proposalHistory.length} proposal snapshot{receipt.proposalHistory.length === 1 ? '' : 's'} · {receipt.repairs.length} repair event{receipt.repairs.length === 1 ? '' : 's'} · webhook {receipt.webhookEventId}</small><small>{new Date(receipt.createdAt).toLocaleString()}</small></div><button className="icon-button" aria-label={`Open receipt ${receipt.receiptId}`} onClick={() => void openReceiptDetail(receipt)}><ArrowUpRight size={15} /></button></article>)}</div>}
+                {receiptDetail && <div className="receipt-detail" aria-label="AgentReceipt detail"><div className="repair-result-heading"><strong>{receiptDetail.receiptId} · {receiptDetail.finalDecision}</strong><button className="icon-button" aria-label="Close receipt detail" onClick={() => setReceiptDetail(null)}><X size={14} /></button></div><p>{receiptDetail.runId ? `Run ${receiptDetail.runId} · revision ${receiptDetail.revisionId ?? 'legacy attribution unavailable'}` : 'Legacy receipt · run attribution unavailable'}</p><div className="repair-items">{receiptDetail.proposalHistory.map((proposal) => <div key={proposal.proposalId}><strong>{proposal.proposalId} · {proposal.currency} {proposal.total.toFixed(2)}</strong>{proposal.items.map((item, index) => <span key={`${item.name}-${index}`}>{item.quantity} × {item.name} · {proposal.currency} {item.unitPrice.toFixed(2)} each</span>)}</div>)}<div className="repair-total"><span>Captured by PayPal Sandbox</span><strong>{receiptDetail.currency} {receiptDetail.amount.toFixed(2)}</strong></div></div>{receiptDetail.violations.length > 0 && <p>Recorded violations: {receiptDetail.violations.map((violation) => `${violation.type}${violation.item ? ` (${violation.item})` : ''}`).join(', ')}</p>}<div className="receipt-timeline">{receiptDetail.activityTimeline.map((event) => <article key={event.eventId}><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.revisionId ?? event.proposalId}{event.calculatedTotal === null ? '' : ` · ${receiptDetail.currency} ${event.calculatedTotal.toFixed(2)}`}</span><small>{event.message}</small></article>)}</div></div>}
                 <form className="receipt-analyst" onSubmit={askReceiptAnalyst}>
                   <label className="form-field" htmlFor="receipt-analyst-question"><span>Ask the Receipt Analyst</span><input id="receipt-analyst-question" value={analystQuestion} onChange={(event) => setAnalystQuestion(event.target.value)} placeholder="Why was this purchase approved?" maxLength={500} /></label>
                   <button className="primary-button" type="submit" disabled={!activeIntent || !analystQuestion.trim() || analystLoading}><Sparkles size={14} />{analystLoading ? 'Reviewing evidence…' : 'Ask'}</button>
                 </form>
-                {analystResult && <div className="analyst-answer" role="status"><strong>Receipt Analyst · {analystResult.evidenceCount} receipt{analystResult.evidenceCount === 1 ? '' : 's'} retrieved</strong><p>{analystResult.answer}</p><small>Evidence: {analystResult.receiptIds.join(', ')}</small></div>}
+                {analystResult && <div className="analyst-answer" role="status"><strong>Receipt Analyst · {analystResult.evidenceCount} receipts · {analystResult.eventIds.length} decision events</strong><p>{analystResult.answer}</p><small>{analystResult.retrievalMode} retrieval · {analystResult.narrationMode} · Evidence: {[...analystResult.receiptIds, ...analystResult.runIds, ...analystResult.revisionIds, ...analystResult.eventIds].join(', ') || 'none'}</small></div>}
               </section>
 
-              <section className="activity-section catalog-section" id="offers">
-                <div className="section-heading activity-heading">
-                  <div><h2>Retailer offers</h2><p>Channel3 results for the active intent · offers are rechecked before checkout</p></div>
-                  <button className="text-button" onClick={searchOffers} disabled={!activeIntent || !integrations?.channel3Configured || channel3Loading} title={!integrations?.channel3Configured ? 'Configure CHANNEL3_API_KEY on the backend' : 'Search current retailer offers'}><Search size={14} />{channel3Loading ? 'Searching' : 'Search offers'}</button>
-                </div>
-                {!integrations?.channel3Configured && <div className="catalog-empty">Channel3 offer search is not configured on the backend.</div>}
-                {channel3Message && <div className="catalog-empty" role="status">{channel3Message}</div>}
-                {channel3Offers.length > 0 && <div className="offer-list">{channel3Offers.map((offer) => <article className={`offer-row ${selectedOffer?.offerUrl === offer.offerUrl ? 'selected' : ''}`} key={`${offer.productId}-${offer.offerUrl}`}>
-                  <div className="offer-copy"><strong>{offer.productName}</strong><span>{offer.retailer} · {offer.availability} · {offer.condition}</span><small>{offer.description || offer.category || 'Product details as provided by Channel3'}</small><a href={offer.offerUrl} target="_blank" rel="noreferrer">View retailer offer <ArrowUpRight size={12} /></a><small>Offer retrieved {new Date(offer.retrievedAt).toLocaleString()}</small></div>
-                  <div className="offer-price"><strong>{offer.currency} {offer.price.toFixed(2)}</strong><button className={selectedOffer?.offerUrl === offer.offerUrl ? 'secondary-button' : 'repair-button'} onClick={() => chooseOffer(offer)}>{selectedOffer?.offerUrl === offer.offerUrl ? 'Selected' : 'Select offer'}</button></div>
-                </article>)}</div>}
-                {selectedOffer && <div className="offer-checkout-panel">
-                  <div className="offer-checkout-heading"><strong>Selected offer</strong><span>{selectedOffer.productName} · {selectedOffer.retailer} · {selectedOffer.currency} {selectedOffer.price.toFixed(2)}</span></div>
-                  <p>Enter confirmed checkout costs from the retailer. Missing tax or shipping is not assumed to be zero.</p>
-                  <div className="offer-cost-fields">
-                    <label className="form-field"><span>Confirmed tax ({selectedOffer.currency})</span><input aria-label="Confirmed tax" type="number" min="0" step="0.01" value={offerTax} onChange={(event) => { setOfferTax(event.target.value); setSelectedOfferProposal(null); setOfferPolicyCheck(null) }} placeholder="Required" /></label>
-                    <label className="form-field"><span>Confirmed shipping ({selectedOffer.currency})</span><input aria-label="Confirmed shipping" type="number" min="0" step="0.01" value={offerShipping} onChange={(event) => { setOfferShipping(event.target.value); setSelectedOfferProposal(null); setOfferPolicyCheck(null) }} placeholder="Required" /></label>
-                  </div>
-                  <button className="secondary-button" onClick={validateSelectedOffer} disabled={!offerTax.trim() || !offerShipping.trim()}>Validate selected offer</button>
-                  {selectedOfferProposal && <div className="offer-total"><span>Server-calculated proposal total</span><strong>{selectedOffer.currency} {selectedOfferProposal.total.toFixed(2)}</strong></div>}
-                  {offerPolicyCheck && <div className={`validation-result ${offerPolicyCheck.decision === 'APPROVE' ? 'approved' : offerPolicyCheck.decision === 'HOLD' ? 'review' : 'blocked'}`} role="status"><div className="repair-result-heading"><strong>Offer policy · {offerPolicyCheck.decision}</strong><span>Calculated {selectedOffer.currency} {offerPolicyCheck.calculatedTotal.toFixed(2)}</span></div>{offerPolicyCheck.violations.length ? <ul>{offerPolicyCheck.violations.map((violation, index) => <li key={`${violation.type}-${violation.item ?? index}`}><strong>{violation.type.replaceAll('_', ' ')}</strong><span>Expected {violation.expected}; got {violation.actual ?? 'missing'}</span></li>)}</ul> : <p>No policy violations.</p>}</div>}
-                  {offerPolicyCheck?.decision === 'APPROVE' && <div className="sandbox-checkout-note"><strong>PayPal Sandbox demonstration</strong><span>This payment goes to the configured Sandbox merchant; it does not pay the Channel3 retailer.</span><button className="primary-button checkout-button" onClick={startCheckout} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Opening PayPal…' : !auth.authenticated ? 'Sign in to continue' : 'Continue to Sandbox checkout'}</button></div>}
-                </div>}
-              </section>
-
-              <section className="activity-section catalog-section" id="catalog">
-                <div className="section-heading activity-heading">
-                  <div><h2>PayPal Catalog</h2><p>Read-only product records from your Sandbox app</p></div>
-                  <button className="text-button" onClick={loadCatalog} disabled={!integrations?.paypalCatalogConfigured || catalogLoading} title={!integrations?.paypalCatalogConfigured ? 'Configure PayPal Sandbox credentials first' : 'Refresh product records'}><RefreshCw size={14} />{catalogLoading ? 'Loading' : 'Refresh'}</button>
-                </div>
-                {!integrations?.paypalCatalogConfigured && <div className="catalog-empty">Add PayPal Sandbox app credentials to `.env` to browse catalog metadata.</div>}
-                {integrations?.paypalCatalogConfigured && catalogMessage && <div className="catalog-empty" role="status">{catalogMessage}</div>}
-                {catalogProducts.length > 0 && <div className="catalog-list">{catalogProducts.map((product) => {
-                  const isLaptop = /laptop|notebook/i.test(product.name)
-                  return <article className="catalog-product" key={product.id}>
-                    <div><strong>{product.name}</strong><p>{product.description || 'No description provided.'}</p><span>Product ID · {product.id}</span></div>
-                    <small>{isLaptop ? <>DEMO ESTIMATE<br />$899.00 USD<br />Not an offer</> : <>Metadata only<br />No offer price</>}</small>
-                  </article>
-                })}</div>}
-              </section>
             </div>
 
             <aside className="secondary-column">
@@ -941,9 +912,7 @@ function App() {
               <section className="services-panel">
                 <div className="panel-heading"><div><span className="panel-kicker">CONNECTED SERVICES</span><h2>Infrastructure</h2></div></div>
                 <div className="service-row"><span className={`service-indicator ${health}`} /><span>IntentOS API</span><span className="service-state">{health === 'online' ? 'Online' : health === 'checking' ? 'Checking' : 'Offline'}</span></div>
-                <div className="service-row"><span className={`service-indicator ${integrations?.channel3Configured ? 'online' : 'pending'}`} /><span>Channel3 offers</span><span className={`service-state ${integrations?.channel3Configured ? '' : 'pending-text'}`}>{integrations ? integrations.channel3Configured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.elasticAgentBuilderConfigured ? 'online' : 'pending'}`} /><span>Receipt Analyst</span><span className={`service-state ${integrations?.elasticAgentBuilderConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.elasticAgentBuilderConfigured ? 'Elastic' : 'Bedrock / off' : 'Checking'}</span></div>
-                <div className="service-row"><span className={`service-indicator ${integrations?.paypalCatalogConfigured ? 'online' : 'pending'}`} /><span>PayPal Catalog</span><span className={`service-state ${integrations?.paypalCatalogConfigured ? '' : 'pending-text'}`}>{integrations ? integrations.paypalCatalogConfigured ? 'Configured' : 'Not configured' : 'Checking'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.paypalWebhookConfigured ? 'online' : 'pending'}`} /><span>PayPal webhooks</span><span className={`service-state ${integrations?.paypalWebhookConfigured ? '' : 'pending-text'}`}>{integrations?.paypalWebhookConfigured ? 'Configured' : 'Not configured'}</span></div>
                 <div className="service-row"><span className={`service-indicator ${integrations?.elasticPersistenceEnabled ? 'online' : 'pending'}`} /><span>Elastic persistence</span><span className={`service-state ${integrations?.elasticPersistenceEnabled ? '' : 'pending-text'}`}>{integrations ? integrations.elasticPersistenceEnabled ? 'Enabled' : 'In memory' : 'Checking'}</span></div>
               </section>

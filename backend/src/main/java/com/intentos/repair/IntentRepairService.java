@@ -1,6 +1,7 @@
 package com.intentos.repair;
 
 import com.intentos.intent.IntentContract;
+import com.intentos.intent.OfferEvidence;
 import com.intentos.intent.TransactionProposal;
 import com.intentos.intent.TransactionProposal.Item;
 import com.intentos.validation.IntentPolicyValidator;
@@ -43,10 +44,17 @@ public class IntentRepairService {
     }
 
     public RepairResult repair(IntentContract intent, TransactionProposal initialProposal) {
+        return repair(intent, initialProposal, MAX_ATTEMPTS);
+    }
+
+    public RepairResult repair(IntentContract intent, TransactionProposal initialProposal, int maxAttempts) {
+        if (maxAttempts < 1 || maxAttempts > MAX_ATTEMPTS) {
+            throw new IllegalArgumentException("Repair attempt budget must be between 1 and " + MAX_ATTEMPTS);
+        }
         TransactionProposal proposal = initialProposal;
         List<RepairAttempt> history = new ArrayList<>();
 
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             ValidationResult result = validator.validate(intent, proposal);
             if (result.decision() == ValidationDecision.APPROVE) {
                 history.add(new RepairAttempt(attempt, result, "Proposal satisfies intent policies.", proposal));
@@ -72,12 +80,12 @@ public class IntentRepairService {
         }
 
         ValidationResult finalResult = validator.validate(intent, proposal);
-        history.add(new RepairAttempt(MAX_ATTEMPTS, finalResult, "Repair limit reached.", proposal));
+        history.add(new RepairAttempt(maxAttempts, finalResult, "Repair limit reached.", proposal));
         if (finalResult.decision() == ValidationDecision.APPROVE) {
-            return new RepairResult(RepairStatus.APPROVED, MAX_ATTEMPTS, proposal, history,
+            return new RepairResult(RepairStatus.APPROVED, maxAttempts, proposal, history,
                     "Proposal approved on the final repair attempt.");
         }
-        return new RepairResult(RepairStatus.NEEDS_USER_REVIEW, MAX_ATTEMPTS, proposal, history,
+        return new RepairResult(RepairStatus.NEEDS_USER_REVIEW, maxAttempts, proposal, history,
                 "Maximum repair attempts reached; user review is required.");
     }
 
@@ -116,10 +124,26 @@ public class IntentRepairService {
         }
 
         BigDecimal correctedTotal = total(items, proposal.shipping(), proposal.tax());
+        List<OfferEvidence> remainingEvidence = new ArrayList<>(proposal.offerEvidence());
+        List<OfferEvidence> currentEvidence = new ArrayList<>();
+        for (Item item : items) {
+            int match = java.util.stream.IntStream.range(0, remainingEvidence.size())
+                    .filter(index -> matches(item, remainingEvidence.get(index)))
+                    .findFirst().orElse(-1);
+            if (match >= 0) currentEvidence.add(remainingEvidence.remove(match));
+        }
         TransactionProposal corrected = new TransactionProposal(
                 proposal.proposalId(), proposal.intentId(), proposal.currency(), items,
-            proposal.shipping(), proposal.tax(), correctedTotal, proposal.offerEvidence());
+            proposal.shipping(), proposal.tax(), correctedTotal, currentEvidence);
         return corrected.equals(proposal) ? null : corrected;
+    }
+
+    private static boolean matches(Item item, OfferEvidence evidence) {
+        return item.name().equalsIgnoreCase(evidence.productName())
+                && java.util.Objects.equals(item.category(), evidence.category())
+                && item.unitPrice() != null && item.unitPrice().compareTo(evidence.price()) == 0
+                && java.util.Objects.equals(item.merchant(), evidence.retailer())
+                && item.attributes().equals(evidence.attributes());
     }
 
     private static BigDecimal effectiveBudget(IntentContract intent) {

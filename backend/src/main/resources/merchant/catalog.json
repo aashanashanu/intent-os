@@ -1,0 +1,39 @@
+{
+  "merchantId": "intentos-simulated-store",
+  "version": "1",
+  "currency": "USD",
+  "products": [
+    {
+      "productId": "portable-computer", "variantId": "16gb-512gb",
+      "name": "Portable Computer 16", "category": "laptop",
+      "attributes": {"ram": "16GB", "storage": "512GB"},
+      "price": 780.00, "stock": 12, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "workstation-computer", "variantId": "32gb-1tb",
+      "name": "Workstation Computer 32", "category": "laptop",
+      "attributes": {"ram": "32GB", "storage": "1TB"},
+      "price": 1120.00, "stock": 5, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "compact-computer", "variantId": "8gb-256gb",
+      "name": "Compact Computer 8", "category": "laptop",
+      "attributes": {"ram": "8GB", "storage": "256GB"},
+      "price": 460.00, "stock": 9, "maximumQuantity": 3,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "support-plan", "variantId": "monthly",
+      "name": "Monthly Device Support", "category": "support",
+      "attributes": {}, "price": 19.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": "SUBSCRIPTION", "billingInterval": "MONTH", "taxable": true
+    }
+  ],
+  "destinationRules": [
+    {"country": "US", "region": "CA", "shippingMethod": "standard", "shipping": 12.00, "taxRate": 0.08, "shippingTaxable": false},
+    {"country": "US", "region": "NY", "shippingMethod": "standard", "shipping": 18.00, "taxRate": 0.09, "shippingTaxable": true},
+    {"country": "US", "region": "CA", "shippingMethod": "express", "shipping": 30.00, "taxRate": 0.08, "shippingTaxable": false}
+  ]
+}

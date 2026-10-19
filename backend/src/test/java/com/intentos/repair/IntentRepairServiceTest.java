@@ -1,6 +1,7 @@
 package com.intentos.repair;
 
 import com.intentos.intent.IntentContract;
+import com.intentos.intent.OfferEvidence;
 import com.intentos.intent.TransactionProposal;
 import com.intentos.intent.TransactionProposal.Item;
 import com.intentos.validation.IntentPolicyValidator;
@@ -38,6 +39,26 @@ class IntentRepairServiceTest {
         assertEquals(1, result.attempts());
         assertEquals(List.of("Developer Laptop"), result.proposal().items().stream().map(Item::name).toList());
         assertEquals(new BigDecimal("971"), result.proposal().total());
+    }
+
+    @Test
+    void removedItemsAlsoLoseTheirOfferEvidence() {
+        IntentContract intent = intent(new BigDecimal("1000"), Map.of());
+        Item laptop = item("Developer Laptop", "400", false, false, false);
+        Item warranty = item("Extended Warranty", "100", false, false, true);
+        Item subscription = item("Antivirus Subscription", "50", true, true, true);
+        List<OfferEvidence> evidence = List.of(
+                evidence(laptop), evidence(warranty), evidence(subscription));
+        TransactionProposal original = new TransactionProposal("PROP-1", "INT-1", "USD",
+                List.of(laptop, warranty, subscription), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("550"), evidence);
+
+        RepairResult result = repairService.repair(intent, original);
+
+        assertEquals(RepairStatus.APPROVED, result.status());
+        assertEquals(List.of("Developer Laptop"), result.proposal().items().stream().map(Item::name).toList());
+        assertEquals(1, result.proposal().offerEvidence().size());
+        assertEquals("Developer Laptop", result.proposal().offerEvidence().getFirst().productName());
     }
 
     @Test
@@ -105,6 +126,19 @@ class IntentRepairServiceTest {
         assertEquals(4, validationCount.get());
     }
 
+    @Test
+    void honorsRemainingPersistedAttemptBudget() {
+        IntentContract intent = intent(new BigDecimal("1000"), Map.of());
+        TransactionProposal proposal = proposal(item("Developer Laptop", "400", false, false, false),
+                item("Unrequested Warranty", "30", false, false, true));
+
+        RepairResult result = repairService.repair(intent, proposal, 1);
+
+        assertEquals(RepairStatus.APPROVED, result.status());
+        assertEquals(1, result.attempts());
+        assertEquals(List.of("Developer Laptop"), result.proposal().items().stream().map(Item::name).toList());
+    }
+
     private static IntentContract intent(BigDecimal maximum, Map<String, Integer> quantityLimits) {
         return new IntentContract("INT-1", "USER-1", Instant.now(), "Buy a development laptop", "Development laptop",
                 maximum, "USD", Set.of("laptop"), Map.of(), Map.of(), Set.of(), false, false, false,
@@ -125,5 +159,10 @@ class IntentRepairServiceTest {
     private static Item item(String name, String price, boolean recurring, boolean subscription, boolean addOn, int quantity) {
         return new Item(name, "laptop", quantity, new BigDecimal(price), recurring, subscription, addOn,
                 "Demo Store", Map.of());
+    }
+
+    private static OfferEvidence evidence(Item item) {
+        return new OfferEvidence("test", item.name(), item.name(), item.category(), item.merchant(), null,
+                item.unitPrice(), "USD", "IN_STOCK", item.attributes(), Instant.now());
     }
 }

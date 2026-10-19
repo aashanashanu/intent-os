@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -24,7 +26,7 @@ class BedrockLanguageModelTest {
     private final BedrockRuntimeClient client = mock(BedrockRuntimeClient.class);
     private final BedrockLanguageModel model = new BedrockLanguageModel(
             client, new ObjectMapper(), "amazon.nova-micro-v1:0", "amazon.nova-lite-v1:0",
-            "amazon.nova-lite-v1:0", "amazon.nova-micro-v1:0", 700);
+            "amazon.nova-lite-v1:0", "amazon.nova-lite-v1:0", "amazon.nova-micro-v1:0", 700);
 
     @Test
     void extractionUsesConfiguredMicroModelAndAddsRequiredClarification() {
@@ -56,6 +58,40 @@ class BedrockLanguageModelTest {
         assertEquals("Keep the subscription removed.", suggestion);
         verify(client).converse(org.mockito.ArgumentMatchers.argThat((ConverseRequest request) ->
                 request.modelId().equals("amazon.nova-lite-v1:0")));
+    }
+
+    @Test
+    void shoppingSelectionAcceptsOnlyIdsFromBoundedMerchantCandidates() {
+        var intent = new IntentContract("intent-1", "user-1", java.time.Instant.now(), "Buy a laptop", "Laptop",
+                new BigDecimal("1000"), "USD", java.util.Set.of("laptop"), Map.of(), Map.of(), java.util.Set.of(),
+                false, false, false, null, java.util.Set.of(), Map.of(), null, BigDecimal.ONE, "BUYER_APPROVAL");
+        var candidates = List.of(new ShoppingCandidate("portable-computer:16gb-512gb", "portable-computer",
+                "16gb-512gb", "Portable Computer", "laptop", Map.of("ram", "16GB"),
+                new BigDecimal("780.00"), 12, 2, "ONE_TIME", null, true));
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response(
+                "{\"items\":[{\"candidateId\":\"portable-computer:16gb-512gb\",\"quantity\":1}],\"rationale\":\"Matches the laptop request\"}"));
+
+        var selection = model.selectShopping(intent, candidates).orElseThrow();
+
+        assertEquals(1, selection.items().size());
+        assertEquals("portable-computer:16gb-512gb", selection.items().getFirst().candidateId());
+        verify(client).converse(org.mockito.ArgumentMatchers.argThat((ConverseRequest request) ->
+                request.modelId().equals("amazon.nova-lite-v1:0")));
+    }
+
+    @Test
+    void shoppingSelectionRejectsInventedCandidateIds() {
+        var intent = new IntentContract("intent-1", "user-1", java.time.Instant.now(), "Buy a laptop", "Laptop",
+                new BigDecimal("1000"), "USD", java.util.Set.of(), Map.of(), Map.of(), java.util.Set.of(),
+                false, false, false, null, java.util.Set.of(), Map.of(), null, BigDecimal.ONE, "BUYER_APPROVAL");
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response(
+                "{\"items\":[{\"candidateId\":\"made-up\",\"quantity\":1}],\"rationale\":\"\"}"));
+
+        ResponseStatusException exception = org.junit.jupiter.api.Assertions.assertThrows(ResponseStatusException.class,
+                () -> model.selectShopping(intent, List.of()));
+
+        assertEquals(502, exception.getStatusCode().value());
+        assertTrue(exception.getReason().contains("invalid shopping selection"));
     }
 
     @Test
