@@ -163,6 +163,9 @@ textarea:focus { border-color: #7c9a81; box-shadow: 0 0 0 3px #60856818; }
 .shopping-result .simulator-disclosure { margin-top: 0; }
 .shopping-result .repair-items { margin-top: 0; }
 .shopping-result .secondary-button { justify-self: start; }
+.pending-payment { margin-top: 10px; }
+.pending-payment .checkout-button { width: fit-content; margin-top: 3px; text-decoration: none; }
+.pending-payment .secondary-button { justify-self: start; }
 .history-filters { display: grid; grid-template-columns: minmax(150px, 1.5fr) repeat(3, minmax(115px, 1fr)) auto; gap: 8px; align-items: end; padding: 11px 0; }
 .history-filters select, .history-filters input { width: 100%; min-width: 0; height: 35px; padding: 0 8px; border: 1px solid #e3e8e1; border-radius: 4px; color: #364139; background: #fbfcfa; font-size: 9px; }
 .history-row { display: flex; align-items: center; gap: 10px; padding: 11px 2px; border-top: 1px solid #edf0ec; }

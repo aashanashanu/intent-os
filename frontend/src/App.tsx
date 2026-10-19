@@ -73,6 +73,7 @@ type IntegrationStatus = {
 
 type PayPalOrder = { orderId: string; status: string; approvalUrl: string }
 type PayPalCapture = { orderId: string; status: string; captureId: string; amount: number; currency: string }
+type PendingPayPalOrder = PayPalOrder & { intentId: string; runId: string; revisionId: string; createdAt: string }
 type AgentReceipt = {
   receiptId: string
   intentId: string
@@ -142,30 +143,6 @@ type ShoppingHistoryPage = {
 }
 
 type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number; eventIds: string[]; runIds: string[]; revisionIds: string[]; retrievalMode: string; narrationMode: string }
-
-type PayPalV6Session = {
-  start(options: { presentationMode: 'auto'; orderId: string }): Promise<unknown>
-}
-
-type PayPalV6Instance = {
-  createPayPalOneTimePaymentSession(options: {
-    onApprove(data: { orderId: string }): Promise<void>
-    onCancel(): void
-    onError(error: unknown): void
-  }): PayPalV6Session
-}
-
-declare global {
-  interface Window {
-    paypal?: {
-      createInstance(options: {
-        clientId: string
-        components: ['paypal-payments']
-        pageType: 'checkout'
-      }): Promise<PayPalV6Instance>
-    }
-  }
-}
 
 type IntentExtraction = {
   goal: string | null
@@ -239,6 +216,14 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [activityEvents, setActivityEvents] = useState<DecisionEvent[]>([])
   const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [pendingPayPalOrder, setPendingPayPalOrder] = useState<PendingPayPalOrder | null>(() => {
+    try {
+      const stored = window.sessionStorage.getItem('intentos.pendingPayPalOrder')
+      return stored ? JSON.parse(stored) as PendingPayPalOrder : null
+    } catch {
+      return null
+    }
+  })
   const [paymentCapture, setPaymentCapture] = useState<PayPalCapture | null>(null)
   const [agentReceipts, setAgentReceipts] = useState<AgentReceipt[]>([])
   const [receiptDetail, setReceiptDetail] = useState<AgentReceipt | null>(null)
@@ -564,29 +549,55 @@ function App() {
     const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
     try {
       const orderResponse = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${shoppingRun.runId}/revisions/${shoppingProposal.revision.revisionId}/orders`, { method: 'POST', headers })
-      if (!orderResponse.ok) throw new Error('The reviewed quote or current intent policy changed. Requote and review the current cart.')
+      if (!orderResponse.ok) {
+        const detail = await orderResponse.text()
+        throw new Error(`PayPal order creation failed (${orderResponse.status}). ${detail.slice(0, 240) || 'The reviewed quote or current intent policy changed.'}`)
+      }
       const order = await orderResponse.json() as PayPalOrder
-      await loadPayPalV6(integrations.paypalClientId)
-      if (!window.paypal) throw new Error('PayPal checkout SDK is unavailable.')
-      const paypal = await window.paypal.createInstance({ clientId: integrations.paypalClientId, components: ['paypal-payments'], pageType: 'checkout' })
-      const session = paypal.createPayPalOneTimePaymentSession({
-        onApprove: async (approval) => {
-          if (approval.orderId !== order.orderId) throw new Error('PayPal approved a different order.')
-          const captureResponse = await fetch(`/api/intents/${activeIntent.intentId}/orders/${order.orderId}/capture`, { method: 'POST', headers })
-          if (!captureResponse.ok) throw new Error('Server-side capture was rejected by current authorization checks.')
-          setPaymentCapture(await captureResponse.json() as PayPalCapture)
-          await refreshIntentActivity(activeIntent.intentId)
-          await loadReceiptMetrics(activeIntent.intentId)
-          await loadShoppingHistory()
-          setNotice('PayPal capture returned. The verified webhook will finalize the receipt.')
-          setNoticeKind('success')
-        },
-        onCancel: () => { setNotice('PayPal checkout was cancelled. No capture was requested.'); setNoticeKind('error') },
-        onError: () => { setNotice('PayPal checkout failed. No client-side capture was attempted.'); setNoticeKind('error') },
-      })
-      await session.start({ presentationMode: 'auto', orderId: order.orderId })
+      const pending: PendingPayPalOrder = {
+        ...order,
+        intentId: activeIntent.intentId,
+        runId: shoppingRun.runId,
+        revisionId: shoppingProposal.revision.revisionId,
+        createdAt: new Date().toISOString(),
+      }
+      window.sessionStorage.setItem('intentos.pendingPayPalOrder', JSON.stringify(pending))
+      setPendingPayPalOrder(pending)
+      setNotice('PayPal order created. Open the approval link and complete buyer approval. Return here and choose Check approval and capture.')
+      setNoticeKind('success')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not start PayPal checkout.')
+      setNoticeKind('error')
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }
+
+  async function captureBuyerApprovedOrder() {
+    if (!pendingPayPalOrder) return
+    setCheckoutBusy(true)
+    const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
+    try {
+      const response = await fetch(`/api/intents/${pendingPayPalOrder.intentId}/orders/${pendingPayPalOrder.orderId}/capture`, {
+        method: 'POST', headers,
+      })
+      if (!response.ok) {
+        const detail = await response.text()
+        if (response.status === 409) {
+          throw new Error('PayPal has not confirmed buyer approval yet, or the quote/policy expired. Complete approval or create and review a fresh quote.')
+        }
+        throw new Error(`Server-side capture failed (${response.status}). ${detail.slice(0, 240)}`)
+      }
+      setPaymentCapture(await response.json() as PayPalCapture)
+      window.sessionStorage.removeItem('intentos.pendingPayPalOrder')
+      setPendingPayPalOrder(null)
+      await refreshIntentActivity(pendingPayPalOrder.intentId)
+      await loadReceiptMetrics(pendingPayPalOrder.intentId)
+      await loadShoppingHistory()
+      setNotice('PayPal capture returned. The verified webhook will finalize the receipt.')
+      setNoticeKind('success')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not verify PayPal buyer approval.')
       setNoticeKind('error')
     } finally {
       setCheckoutBusy(false)
@@ -648,26 +659,6 @@ function App() {
     } finally {
       setAnalystLoading(false)
     }
-  }
-
-  function loadPayPalV6(clientId: string) {
-    if (window.paypal) return Promise.resolve()
-    return new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector<HTMLScriptElement>('#paypal-v6-sdk')
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true })
-        existing.addEventListener('error', () => reject(new Error('PayPal checkout SDK could not be loaded.')), { once: true })
-        return
-      }
-      const script = document.createElement('script')
-      script.id = 'paypal-v6-sdk'
-      script.src = 'https://www.sandbox.paypal.com/web-sdk/v6/core'
-      script.async = true
-      script.onload = () => window.paypal ? resolve() : reject(new Error('PayPal checkout SDK did not initialize.'))
-      script.onerror = () => reject(new Error('PayPal checkout SDK could not be loaded.'))
-      script.dataset.clientId = clientId
-      document.head.append(script)
-    })
   }
 
   async function explainDecision() {
@@ -828,7 +819,14 @@ function App() {
                   {shoppingProposal.revision?.violationTypes.length ? <p>Policy findings: {shoppingProposal.revision.violationTypes.join(', ')}</p> : null}
                   {shoppingProposal.revision && (shoppingProposal.validation?.decision ?? shoppingProposal.revision.validationDecision) !== 'APPROVE' && <button className="secondary-button" onClick={repairShopping} disabled={shoppingBusy}><ShieldCheck size={14} />{shoppingBusy ? 'Repairing…' : 'Attempt safe repair'}</button>}
                   {shoppingProposal.revision && (shoppingProposal.validation?.decision ?? shoppingProposal.revision.validationDecision) === 'APPROVE' && !shoppingReviewId && <button className="secondary-button" onClick={reviewShoppingRevision} disabled={shoppingBusy}><Check size={14} />Review this exact cart</button>}
-                  {shoppingReviewId && <div className="sandbox-checkout-note"><strong>Cart review recorded</strong><span>Review {shoppingReviewId} is bound to {shoppingProposal.revision?.revisionId} and its quote.</span><button className="primary-button checkout-button" onClick={checkoutShoppingRevision} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Opening PayPal…' : !auth.authenticated ? 'Sign in to continue' : 'Continue to PayPal approval'}</button></div>}
+                  {shoppingReviewId && !pendingPayPalOrder && <div className="sandbox-checkout-note"><strong>Cart review recorded</strong><span>Review {shoppingReviewId} is bound to {shoppingProposal.revision?.revisionId} and its quote.</span><button className="primary-button checkout-button" onClick={checkoutShoppingRevision} disabled={checkoutBusy || !integrations?.paypalClientId || !auth.authenticated}>{checkoutBusy ? 'Creating PayPal order…' : !auth.authenticated ? 'Sign in to continue' : 'Create PayPal approval order'}</button></div>}
+                </div>}
+                {pendingPayPalOrder && <div className="sandbox-checkout-note pending-payment" role="status">
+                  <strong>PayPal order {pendingPayPalOrder.status}</strong>
+                  <span>Order {pendingPayPalOrder.orderId} · approved cart {pendingPayPalOrder.revisionId}</span>
+                  <a className="primary-button checkout-button" href={pendingPayPalOrder.approvalUrl}>Open PayPal buyer approval</a>
+                  <span>After approving in PayPal, return here. Capture is a separate server-side action and will not run automatically.</span>
+                  <button className="secondary-button" onClick={captureBuyerApprovedOrder} disabled={checkoutBusy || !auth.authenticated}>{checkoutBusy ? 'Checking approval…' : 'Check approval and capture'}</button>
                 </div>}
               </section>
 
