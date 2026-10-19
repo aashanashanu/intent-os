@@ -16,6 +16,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
@@ -27,6 +29,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 @Service
 @ConditionalOnProperty(name = "intentos.llm.enabled", havingValue = "true")
 public class BedrockLanguageModel implements IntentLanguageModel {
+    private static final Logger LOGGER = LoggerFactory.getLogger(BedrockLanguageModel.class);
     private static final String EXTRACTION_INSTRUCTIONS = """
             Extract purchase intent only. Return exactly one JSON object and no markdown.
             Do not invent facts; extract only details explicitly stated by the user.
@@ -128,9 +131,13 @@ public class BedrockLanguageModel implements IntentLanguageModel {
 
     private ShoppingSelection parseShoppingSelection(String responseText, List<ShoppingCandidate> candidates) {
         try {
-            JsonNode root = objectMapper.readTree(responseText);
+            String json = responseText == null ? "" : responseText.trim();
+            if (json.startsWith("```")) {
+                json = json.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "").trim();
+            }
+            JsonNode root = objectMapper.readTree(json);
             if (root == null || !root.isObject() || !root.path("items").isArray()
-                    || !root.path("rationale").isTextual() || root.size() != 2) {
+                    || (root.has("rationale") && !root.path("rationale").isTextual())) {
                 throw new IllegalArgumentException("Shopping selection must contain items and rationale");
             }
             Set<String> validIds = candidates.stream().map(ShoppingCandidate::candidateId)
@@ -138,7 +145,7 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             Set<String> selectedIds = new LinkedHashSet<>();
             List<ShoppingSelection.SelectedCandidate> items = new ArrayList<>();
             for (JsonNode item : root.path("items")) {
-                if (!item.isObject() || item.size() != 2 || !item.path("candidateId").isTextual()
+                if (!item.isObject() || !item.path("candidateId").isTextual()
                         || !item.path("quantity").canConvertToInt()) {
                     throw new IllegalArgumentException("Shopping candidate selection has invalid fields");
                 }
@@ -149,9 +156,10 @@ public class BedrockLanguageModel implements IntentLanguageModel {
                 }
                 items.add(new ShoppingSelection.SelectedCandidate(candidateId, quantity));
             }
-            return new ShoppingSelection(items, root.path("rationale").asText().substring(0,
-                    Math.min(1000, root.path("rationale").asText().length())));
+                String rationale = root.path("rationale").asText("Candidate selection based on the supplied intent and merchant facts.");
+                return new ShoppingSelection(items, rationale.substring(0, Math.min(1000, rationale.length())));
         } catch (JsonProcessingException | IllegalArgumentException exception) {
+                LOGGER.warn("Bedrock shopping response rejected ({})", exception.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Bedrock returned an invalid shopping selection", exception);
         }
@@ -179,6 +187,7 @@ public class BedrockLanguageModel implements IntentLanguageModel {
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (Exception exception) {
+            LOGGER.error("Bedrock task {} failed with {}", task, exception.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Intent language-model request failed", exception);
         }
@@ -251,11 +260,6 @@ public class BedrockLanguageModel implements IntentLanguageModel {
         return value.isTextual() && !value.asText().isBlank() ? value.asText().trim() : null;
     }
 
-    private static BigDecimal decimal(JsonNode root, String field) {
-        JsonNode value = root.path(field);
-        return value.isNumber() ? value.decimalValue() : null;
-    }
-
     private static Set<String> strings(JsonNode value) {
         return new LinkedHashSet<>(stringsList(value));
     }
@@ -271,7 +275,7 @@ public class BedrockLanguageModel implements IntentLanguageModel {
 
     private static Map<String, String> stringMap(JsonNode value) {
         java.util.LinkedHashMap<String, String> result = new java.util.LinkedHashMap<>();
-        if (value.isObject()) value.fields().forEachRemaining(entry -> {
+        if (value.isObject()) value.properties().forEach(entry -> {
             if (!entry.getValue().isTextual()) throw new IllegalArgumentException("Attribute values must be strings");
             if (!entry.getValue().asText().isBlank()) result.put(entry.getKey(), entry.getValue().asText().trim());
         });

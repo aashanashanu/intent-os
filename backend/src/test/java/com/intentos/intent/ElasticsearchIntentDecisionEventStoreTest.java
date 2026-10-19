@@ -17,29 +17,22 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class ElasticsearchIntentDecisionEventStoreTest {
     @Test
-    void retrievesOrderedProposalSummariesThroughEsqlForDeterministicMetrics() {
+        void retrievesPaginatedEventsForDeterministicMetrics() {
         RestClient.Builder clientBuilder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(clientBuilder).build();
-        server.expect(requestTo("https://elastic.test/_query"))
+        server.expect(requestTo("https://elastic.test/intent-event-v1/_search"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
-                        {"query":"FROM intent-event-v1 | WHERE intentId.keyword == \\"INT-1\\" | KEEP proposalId, runId, revisionId, eventType, decision, calculatedTotal, occurredAt, message, violations | SORT occurredAt ASC | LIMIT 10000"}
+                        {"query":{"term":{"intentId.keyword":"INT-1"}},"sort":[{"occurredAt":{"order":"asc"}},{"eventId.keyword":{"order":"asc"}}],"size":500}
                         """))
                 .andRespond(withSuccess("""
-                        {
-                          "columns":[
-                            {"name":"proposalId","type":"keyword"},
-                            {"name":"runId","type":"keyword"},
-                            {"name":"revisionId","type":"keyword"},
-                            {"name":"eventType","type":"keyword"},
-                            {"name":"decision","type":"keyword"},
-                            {"name":"calculatedTotal","type":"double"},
-                            {"name":"occurredAt","type":"date"},
-                                                                                                                {"name":"message","type":"keyword"},
-                                                                                                                {"name":"violations","type":"keyword"}
-                          ],
-                                                                                                        "values":[["PROP-1","RUN-1","RUN-1-R1","SHOPPING_VALIDATION","BLOCK",1249,"2026-10-13T00:00:01Z","Budget exceeded",["BUDGET_EXCEEDED"]]]
-                        }
+                        {"hits":{"hits":[{"sort":["2026-10-13T00:00:01Z","EVT-1"],"_source":{
+                          "eventId":"EVT-1","intentId":"INT-1","proposalId":"PROP-1",
+                          "runId":"RUN-1","revisionId":"RUN-1-R1","eventType":"SHOPPING_VALIDATION",
+                          "decision":"BLOCK","calculatedTotal":1249,
+                          "occurredAt":"2026-10-13T00:00:01Z","message":"Budget exceeded",
+                          "violations":[{"type":"BUDGET_EXCEEDED","item":"laptop"}]
+                        }}]}}
                         """, MediaType.APPLICATION_JSON));
         ElasticsearchIntentDecisionEventStore store = new ElasticsearchIntentDecisionEventStore(
                 "https://elastic.test", "encoded-test-key", new ObjectMapper(), clientBuilder);

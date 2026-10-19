@@ -80,6 +80,26 @@ class BedrockLanguageModelTest {
     }
 
     @Test
+    void shoppingSelectionAcceptsFencedJsonWithHarmlessExtraFields() {
+        var intent = new IntentContract("intent-1", "user-1", java.time.Instant.now(), "Buy a laptop", "Laptop",
+                new BigDecimal("1000"), "USD", java.util.Set.of(), Map.of(), Map.of(), java.util.Set.of(),
+                false, false, false, null, java.util.Set.of(), Map.of(), null, BigDecimal.ONE, "BUYER_APPROVAL");
+        var candidates = List.of(new ShoppingCandidate("portable-computer:16gb-512gb", "portable-computer",
+                "16gb-512gb", "Portable Computer", "laptop", Map.of("ram", "16GB"),
+                new BigDecimal("780.00"), 12, 2, "ONE_TIME", null, true));
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response("""
+                ```json
+                {"items":[{"candidateId":"portable-computer:16gb-512gb","quantity":1,"reason":"fits"}],
+                 "rationale":"Fits the supplied intent","confidence":0.93}
+                ```
+                """));
+
+        var selection = model.selectShopping(intent, candidates).orElseThrow();
+
+        assertEquals("portable-computer:16gb-512gb", selection.items().getFirst().candidateId());
+    }
+
+    @Test
     void shoppingSelectionRejectsInventedCandidateIds() {
         var intent = new IntentContract("intent-1", "user-1", java.time.Instant.now(), "Buy a laptop", "Laptop",
                 new BigDecimal("1000"), "USD", java.util.Set.of(), Map.of(), Map.of(), java.util.Set.of(),

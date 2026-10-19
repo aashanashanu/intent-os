@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 @ConditionalOnProperty(name = "intentos.elastic.enabled", havingValue = "true")
 public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEventStore {
     private static final String INDEX = "intent-event-v1";
+    private static final int METRICS_PAGE_SIZE = 500;
     private final RestClient client;
     private final ObjectMapper objectMapper;
 
@@ -85,51 +86,62 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
 
     @Override
     public List<DecisionMetricEvent> findMetricEventsByIntentId(String intentId) {
-        String escapedIntentId = intentId.replace("\\", "\\\\").replace("\"", "\\\"");
-        JsonNode response = client.post().uri("/_query")
-                .body(Map.of("query", "FROM " + INDEX
-                    + " | WHERE intentId.keyword == \"" + escapedIntentId + "\""
-                        + " | KEEP proposalId, runId, revisionId, eventType, decision, calculatedTotal, occurredAt, message, violations"
-                        + " | SORT occurredAt ASC | LIMIT 10000"))
-                .exchange((request, result) -> {
-                    if (result.getStatusCode().value() == 404) return null;
-                    if (!result.getStatusCode().is2xxSuccessful()) {
-                        throw new IllegalStateException("Elastic ES|QL query failed with HTTP " + result.getStatusCode().value());
-                    }
-                    try {
-                        return objectMapper.readTree(result.getBody());
-                    } catch (IOException exception) {
-                        throw new IllegalStateException("Could not decode ES|QL analytics response", exception);
-                    }
-                });
-        if (response == null) return List.of();
-        List<String> columns = new ArrayList<>();
-        response.path("columns").forEach(column -> columns.add(column.path("name").asText()));
         List<DecisionMetricEvent> events = new ArrayList<>();
-        for (JsonNode row : response.path("values")) {
-            Map<String, JsonNode> values = new java.util.HashMap<>();
-            for (int index = 0; index < columns.size() && index < row.size(); index++) {
-                values.put(columns.get(index), row.get(index));
+        List<JsonNode> searchAfter = null;
+        while (true) {
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("query", Map.of("term", Map.of("intentId.keyword", intentId)));
+            body.put("sort", List.of(Map.of("occurredAt", Map.of("order", "asc")),
+                Map.of("eventId.keyword", Map.of("order", "asc"))));
+            body.put("size", METRICS_PAGE_SIZE);
+            if (searchAfter != null) body.put("search_after", searchAfter);
+            JsonNode response = client.post()
+                    .uri("/{index}/_search", INDEX)
+                .body(body)
+                    .exchange((request, result) -> {
+                        if (result.getStatusCode().value() == 404) return null;
+                        if (!result.getStatusCode().is2xxSuccessful()) {
+                            throw new IllegalStateException("Elastic event metrics search failed with HTTP "
+                                    + result.getStatusCode().value());
+                        }
+                        try {
+                            return objectMapper.readTree(result.getBody());
+                        } catch (IOException exception) {
+                            throw new IllegalStateException("Could not decode Elastic event metrics response", exception);
+                        }
+                    });
+            if (response == null) break;
+            JsonNode hits = response.path("hits").path("hits");
+            for (JsonNode hit : hits) {
+                JsonNode source = hit.path("_source");
+                String decisionText = nullableText(source, "decision");
+                com.intentos.validation.ValidationDecision decision = decisionText == null ? null
+                        : com.intentos.validation.ValidationDecision.valueOf(decisionText.toUpperCase());
+                events.add(new DecisionMetricEvent(
+                        nullableText(source, "proposalId"), nullableText(source, "eventType"), decision,
+                        decimal(source, "calculatedTotal"), instant(source, "occurredAt"),
+                        nullableText(source, "message"), nullableText(source, "runId"),
+                        nullableText(source, "revisionId"), source.path("violations").isArray()
+                                ? source.path("violations").size() : 0));
             }
-            String decisionText = text(values, "decision");
-            com.intentos.validation.ValidationDecision decision = decisionText == null
-                    ? null : com.intentos.validation.ValidationDecision.valueOf(decisionText.toUpperCase());
-            java.math.BigDecimal total = decimal(values, "calculatedTotal");
-            java.time.Instant occurredAt = instant(values, "occurredAt");
-            events.add(new DecisionMetricEvent(text(values, "proposalId"), text(values, "eventType"),
-                    decision, total, occurredAt, text(values, "message"), text(values, "runId"),
-                    text(values, "revisionId"), arraySize(values.get("violations"))));
+            if (hits.size() < METRICS_PAGE_SIZE) break;
+            JsonNode lastSort = hits.get(hits.size() - 1).path("sort");
+            if (!lastSort.isArray() || lastSort.isEmpty()) {
+                throw new IllegalStateException("Elastic event metrics page did not include its search cursor");
+            }
+            searchAfter = new ArrayList<>();
+            lastSort.forEach(searchAfter::add);
         }
         return List.copyOf(events);
     }
 
-    private static String text(Map<String, JsonNode> values, String key) {
-        JsonNode value = values.get(key);
+    private static String nullableText(JsonNode values, String key) {
+        JsonNode value = values.path(key);
         return value == null || value.isNull() ? null : value.asText();
     }
 
-    private static java.math.BigDecimal decimal(Map<String, JsonNode> values, String key) {
-        JsonNode value = values.get(key);
+    private static java.math.BigDecimal decimal(JsonNode values, String key) {
+        JsonNode value = values.path(key);
         if (value == null || value.isNull()) return null;
         try {
             return new java.math.BigDecimal(value.asText());
@@ -138,8 +150,8 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
         }
     }
 
-    private static java.time.Instant instant(Map<String, JsonNode> values, String key) {
-        String value = text(values, key);
+    private static java.time.Instant instant(JsonNode values, String key) {
+        String value = nullableText(values, key);
         if (value == null) return null;
         try {
             return java.time.Instant.parse(value);
@@ -148,7 +160,4 @@ public class ElasticsearchIntentDecisionEventStore implements IntentDecisionEven
         }
     }
 
-    private static int arraySize(JsonNode value) {
-        return value != null && value.isArray() ? value.size() : 0;
-    }
 }
