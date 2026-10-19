@@ -87,7 +87,7 @@ sequenceDiagram
     API->>C3: POST /v1/search (goal, budget, required facts)
     C3-->>API: Products + merchant offers
     API-->>UI: Normalized offers with retrievedAt
-    User->>UI: Select one retailer offer; enter confirmed tax/shipping
+    User->>UI: Select one retailer offer and enter confirmed tax/shipping
     UI->>API: POST /api/intents/{id}/validation
     API->>Policy: Validate intent, offer, amount and cost fields
     Policy-->>API: APPROVE / MODIFY / HOLD / BLOCK + violations
@@ -120,14 +120,14 @@ sequenceDiagram
     UI->>PayPal: Start SDK checkout and obtain buyer approval
     PayPal-->>UI: onApprove(orderId)
     UI->>API: POST /orders/{orderId}/capture
-    API->>PayPal: GET order; verify APPROVED and bound amount/intent/proposal
+    API->>PayPal: GET order and verify APPROVED and bound amount/intent/proposal
     API->>PayPal: POST capture with stable request ID
     PayPal-->>API: Capture response
     API-->>UI: Capture status (not yet AgentReceipt authority)
     PayPal->>API: PAYMENT.CAPTURE.COMPLETED + transmission signature
     API->>PayPal: Verify webhook signature with configured webhook ID
     PayPal-->>API: Verification SUCCESS
-    API->>Elastic: Deduplicate webhook; persist capture and one receipt
+    API->>Elastic: Deduplicate webhook and persist capture and one receipt
 ```
 
 A Sandbox capture is a payment to the configured PayPal Sandbox merchant. It does **not** prove the Channel3 retailer was paid or fulfilled an order. The UI and demo must preserve that distinction.
