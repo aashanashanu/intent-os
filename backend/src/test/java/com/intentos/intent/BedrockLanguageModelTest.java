@@ -163,6 +163,22 @@ class BedrockLanguageModelTest {
         assertTrue(result.clarificationQuestions().isEmpty());
     }
 
+        @Test
+        void optionalExtractionQuestionsDoNotBlockCompleteIntent() {
+                when(client.converse(any(ConverseRequest.class)))
+                                .thenReturn(response("""
+                                                {"goal":"Development laptop","maxAmount":1000,"currency":"USD","allowedCategories":["laptop"],"requiredAttributes":{"ram":"16GB"},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":0.95,"clarificationQuestions":["Do you have a preference for laptop brand or type?"]}
+                                                """))
+                                .thenReturn(response("""
+                                        {"clarificationQuestions":[],"conflicts":[]}
+                                        """));
+
+                IntentExtractionResult result = model.extract("Find a development laptop with 16GB RAM under $1,000.");
+
+                assertFalse(result.needsClarification());
+                assertTrue(result.clarificationQuestions().isEmpty());
+        }
+
     @Test
     void reasoningConflictStillRequiresClarification() {
         when(client.converse(any(ConverseRequest.class)))

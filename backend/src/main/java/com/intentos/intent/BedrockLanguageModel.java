@@ -33,7 +33,9 @@ public class BedrockLanguageModel implements IntentLanguageModel {
     private static final String EXTRACTION_INSTRUCTIONS = """
             Extract purchase intent only. Return exactly one JSON object and no markdown.
             Do not invent facts; extract only details explicitly stated by the user.
-            If product, budget, payment permission, or meaning is ambiguous, include concise clarificationQuestions.
+            A clear product goal and budget are sufficient to draft an intent. Do not ask for optional preferences such as brand,
+            model, product type, operating system, processor, storage, screen size, software, or GPU.
+            Ask clarificationQuestions only when the purchase goal or budget cannot be determined, or when the request is contradictory.
             Treat recurring payments, subscriptions, and add-ons as disallowed unless explicitly allowed.
             requiredAttributes contains only explicit minimum requirements, such as RAM.
             confidence is a number from 0 to 1 describing completeness and lack of ambiguity.
@@ -232,7 +234,9 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             if (confidence.compareTo(BigDecimal.ZERO) < 0 || confidence.compareTo(BigDecimal.ONE) > 0) {
                 throw new IllegalArgumentException("Extracted confidence must be between zero and one");
             }
-            List<String> questions = stringsList(questionsNode);
+                List<String> questions = goal == null || maxAmount == null
+                    ? stringsList(questionsNode)
+                    : new ArrayList<>();
             if (goal == null && questions.isEmpty()) questions.add("What type of purchase are you looking for?");
             if (maxAmount == null && questions.stream().noneMatch(question -> question.toLowerCase().contains("budget"))) {
                 questions.add("What is your maximum budget in USD?");
