@@ -59,7 +59,7 @@ The workflow targets the GitHub Environment named `main`. In **Settings → Envi
 - `PAYPAL_LOGIN_CLIENT_ID` and `PAYPAL_LOGIN_CLIENT_SECRET`: optional separate Login credentials; if unset, REST credentials are used.
 - `INTENTOS_ELASTIC_API_KEY`: optional encoded Elasticsearch API key.
 
-No AWS access-key secret is needed. GitHub Actions assumes the IAM role using OIDC; its trust subject is restricted to this repository's `main` environment. Push to `main` or run **Deploy to AWS** from the Actions tab. CI builds and tests Spring Boot, builds React, syncs the frontend to S3, stores the backend image in a private deployment bucket, stores runtime credentials as an SSM `SecureString`, and uses SSM Run Command to restart the container. It invalidates CloudFront after deployment.
+No AWS access-key secret is needed. GitHub Actions assumes the IAM role using OIDC; its trust subject is restricted to this repository's `main` environment. Push to `main` or run **Deploy to AWS** from the Actions tab. CI builds and tests Spring Boot, builds React, syncs the frontend to S3, stores the backend image in a private deployment bucket, stores runtime credentials as an SSM `SecureString`, and uses SSM Run Command to restart the container. Deployment also verifies or creates the PayPal REST app's `PAYMENT.CAPTURE.COMPLETED` webhook at `PUBLIC_APP_URL/api/webhooks/paypal` and stores its confirmed ID, rather than trusting a manually supplied ID. PayPal registration failures stop deployment. It invalidates CloudFront after deployment.
 
 ## Configure PayPal Login
 

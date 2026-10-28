@@ -1,4 +1,5 @@
 import { writeFileSync } from 'node:fs';
+import { provisionPayPalWebhook } from './provision-paypal-webhook.mjs';
 
 const publicAppUrl = process.env.PUBLIC_APP_URL ?? '';
 let appUrl;
@@ -37,6 +38,13 @@ if (process.env.INTENTOS_ELASTIC_ENABLED === 'true'
   throw new Error('Elastic is enabled; set INTENTOS_ELASTIC_URL and INTENTOS_ELASTIC_API_KEY.');
 }
 
+const webhookId = await provisionPayPalWebhook({
+  clientId: process.env.PAYPAL_CLIENT_ID,
+  clientSecret: process.env.PAYPAL_CLIENT_SECRET,
+  environment: process.env.PAYPAL_ENVIRONMENT || 'sandbox',
+  publicAppUrl: appUrl.origin,
+});
+
 const environment = {
   SESSION_COOKIE_SECURE: 'true',
   INTENTOS_AUTH_REQUIRED: 'true',
@@ -44,7 +52,7 @@ const environment = {
   PAYPAL_ENVIRONMENT: process.env.PAYPAL_ENVIRONMENT || 'sandbox',
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
-  PAYPAL_WEBHOOK_ID: process.env.PAYPAL_WEBHOOK_ID || '',
+  PAYPAL_WEBHOOK_ID: webhookId,
   PAYPAL_LOGIN_CLIENT_ID: process.env.PAYPAL_LOGIN_CLIENT_ID || process.env.PAYPAL_CLIENT_ID,
   PAYPAL_LOGIN_CLIENT_SECRET: process.env.PAYPAL_LOGIN_CLIENT_SECRET || process.env.PAYPAL_CLIENT_SECRET,
   PAYPAL_LOGIN_REDIRECT_URI: `${appUrl.origin}/api/auth/paypal/callback`,

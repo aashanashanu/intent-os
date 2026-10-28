@@ -34,6 +34,9 @@ jobs:
       - name: Test and build backend
         run: ./backend/gradlew -p backend test bootJar
 
+      - name: Test deployment scripts
+        run: node --test scripts/*.test.mjs
+
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -63,7 +66,7 @@ jobs:
           aws s3 cp backend-image.tar.gz \
             "s3://$ARTIFACT_BUCKET/releases/${GITHUB_SHA}/backend-image.tar.gz"
 
-      - name: Prepare deployment configuration
+      - name: Prepare deployment and verify PayPal webhook
         env:
           PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://d16bwrbw919sxe.cloudfront.net' }}
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -73,7 +76,6 @@ jobs:
           PAYPAL_ENVIRONMENT: ${{ vars.PAYPAL_ENVIRONMENT || 'sandbox' }}
           PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
           PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
-          PAYPAL_WEBHOOK_ID: ${{ vars.PAYPAL_WEBHOOK_ID || secrets.PAYPAL_WEBHOOK_ID || '' }}
           PAYPAL_LOGIN_CLIENT_ID: ${{ secrets.PAYPAL_LOGIN_CLIENT_ID }}
           PAYPAL_LOGIN_CLIENT_SECRET: ${{ secrets.PAYPAL_LOGIN_CLIENT_SECRET }}
           INTENTOS_ELASTIC_ENABLED: ${{ vars.INTENTOS_ELASTIC_ENABLED || 'false' }}
