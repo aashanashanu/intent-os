@@ -26,15 +26,21 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
     private volatile boolean semanticEnabled;
     private volatile boolean semanticDegraded;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ElasticsearchAgentReceiptStore(
             @Value("${intentos.elastic.url:}") String url,
             @Value("${intentos.elastic.api-key:}") String apiKey,
             @Value("${intentos.elastic.semantic-field:searchText}") String semanticField,
             ObjectMapper objectMapper) {
+        this(url, apiKey, semanticField, objectMapper, RestClient.builder());
+    }
+
+    ElasticsearchAgentReceiptStore(String url, String apiKey, String semanticField,
+            ObjectMapper objectMapper, RestClient.Builder clientBuilder) {
         if (url.isBlank() || apiKey.isBlank()) {
             throw new IllegalStateException("Elastic is enabled but ELASTIC_URL or ELASTIC_API_KEY is missing");
         }
-        client = RestClient.builder().baseUrl(url)
+        client = clientBuilder.baseUrl(url)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "ApiKey " + apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
@@ -113,9 +119,9 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
         }
         try {
             List<Object> sort = query == null || query.isBlank()
-                ? List.of(Map.of("createdAt", Map.of("order", "desc")))
+                ? List.of(Map.of("createdAt", Map.of("order", "desc", "unmapped_type", "date")))
                 : List.of(Map.of("_score", Map.of("order", "desc")),
-                    Map.of("createdAt", Map.of("order", "desc")));
+                    Map.of("createdAt", Map.of("order", "desc", "unmapped_type", "date")));
             return client.post().uri("/{index}/_search", INDEX)
                     .body(Map.of("query", Map.of("bool", bool),
                     "sort", sort,
@@ -134,7 +140,8 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
 
     private synchronized void ensureSearchMapping() {
         if (mappingInitialized) return;
-        Map<String, Object> semanticProperties = Map.of("searchText", Map.of("type", "semantic_text"));
+        Map<String, Object> semanticProperties = Map.of(
+            "searchText", Map.of("type", "semantic_text"), "createdAt", Map.of("type", "date"));
         int createStatus = requestStatus("/{index}", Map.of("mappings", Map.of("properties", semanticProperties)));
         if (createStatus >= 200 && createStatus < 300) {
             semanticEnabled = true;
@@ -147,7 +154,8 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
             mappingInitialized = true;
             return;
         }
-        requestStatus("/{index}", Map.of("mappings", Map.of("properties", Map.of("searchText", Map.of("type", "text")))));
+        requestStatus("/{index}", Map.of("mappings", Map.of("properties", Map.of(
+            "searchText", Map.of("type", "text"), "createdAt", Map.of("type", "date")))));
         semanticEnabled = false;
         mappingInitialized = true;
     }
