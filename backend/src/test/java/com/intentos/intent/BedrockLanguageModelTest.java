@@ -130,6 +130,24 @@ class BedrockLanguageModelTest {
     }
 
     @Test
+    void extractionAcceptsFencedJsonReasoningReview() {
+        when(client.converse(any(ConverseRequest.class)))
+                .thenReturn(response("""
+                        {"goal":"Development laptop","maxAmount":1000,"currency":"USD","allowedCategories":["laptop"],"requiredAttributes":{"ram":"16GB"},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":0.95,"clarificationQuestions":[]}
+                        """))
+                .thenReturn(response("""
+                        ```json
+                        {"clarificationQuestions":[],"conflicts":[]}
+                        ```
+                        """));
+
+        IntentExtractionResult result = model.extract("Buy a development laptop under $1,000.");
+
+        assertEquals("Development laptop", result.goal());
+        assertFalse(result.needsClarification());
+    }
+
+    @Test
     void rejectsIncompleteModelJsonWithoutFallback() {
         when(client.converse(any(ConverseRequest.class))).thenReturn(response("""
                 {"goal":"Laptop","maxAmount":1000,"currency":"USD"}

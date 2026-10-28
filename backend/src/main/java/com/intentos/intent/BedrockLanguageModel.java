@@ -195,7 +195,7 @@ public class BedrockLanguageModel implements IntentLanguageModel {
 
     private IntentExtractionResult parseExtraction(String originalRequest, String responseText) {
         try {
-            JsonNode root = objectMapper.readTree(responseText);
+            JsonNode root = objectMapper.readTree(stripJsonCodeFence(responseText));
             if (root == null || !root.isObject()) throw new IllegalArgumentException("Draft must be a JSON object");
             JsonNode goalNode = required(root, "goal");
             if (!goalNode.isNull() && !goalNode.isTextual()) throw new IllegalArgumentException("goal must be a string or null");
@@ -284,7 +284,7 @@ public class BedrockLanguageModel implements IntentLanguageModel {
 
     private IntentExtractionResult applyReasoningReview(IntentExtractionResult draft, String responseText) {
         try {
-            JsonNode root = objectMapper.readTree(responseText);
+            JsonNode root = objectMapper.readTree(stripJsonCodeFence(responseText));
             if (root == null || !root.isObject()) throw new IllegalArgumentException("Reasoning review must be a JSON object");
             JsonNode questionsNode = required(root, "clarificationQuestions");
             JsonNode conflictsNode = required(root, "conflicts");
@@ -305,5 +305,15 @@ public class BedrockLanguageModel implements IntentLanguageModel {
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Bedrock returned an invalid intent reasoning review", exception);
         }
+    }
+
+    private static String stripJsonCodeFence(String responseText) {
+        String json = responseText == null ? "" : responseText.trim();
+        if (json.startsWith("```")) {
+            json = json.replaceFirst("^```(?:json)?\\s*", "")
+                    .replaceFirst("\\s*```$", "")
+                    .trim();
+        }
+        return json;
     }
 }
