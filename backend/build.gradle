@@ -23,6 +23,8 @@ dependencies {
     implementation platform('software.amazon.awssdk:bom:2.41.4')
     implementation 'software.amazon.awssdk:bedrockruntime'
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'io.modelcontextprotocol.sdk:mcp-spring-webmvc:0.18.5'
+    implementation 'io.modelcontextprotocol.sdk:mcp-json-jackson2:0.18.5'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 

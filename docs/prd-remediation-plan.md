@@ -97,6 +97,8 @@ Ship and test each work package before proceeding. R5/R6 must use the lineage id
 
 ### R6: Attach Secured Analyst Tools
 
+Source progress: the official MCP Java SDK now serves four read-only tools at `/api/analyst/mcp`; backend-issued two-minute capabilities bind the authorized intent/owner with an eight-attempt budget and per-call ownership checks. Analyst responses require completed evidence/metrics calls and an evidence citation, return tool traces, and revoke capabilities on completion/failure. Unit and real HTTP tests cover denied scope overrides, forged/expired/exhausted capabilities, foreign receipts, and tool-less narration. Provisioning now attaches imported MCP tools only, not raw ES|QL tools. Live Kibana connector import/attachment, least-privilege runtime credentials, multi-instance capability persistence, citation relevance, cross-intent historical analysis, and deployed acceptance remain open. This source implementation does not close R6 by itself.
+
 - Provide Agent Builder with read-only backend tools for authorized history search, receipt detail, decision evidence, and deterministic metrics. Use a supported secured MCP/tool integration with a verified user principal or short-lived, audience-bound, server-issued scope capability.
 - Bind owner, allowed intents/runs, and expiry in backend authorization. Ignore/reject model-supplied user IDs, scope changes, raw Elasticsearch queries, and unauthorized document IDs.
 - Attach these tools to the Receipt Analyst and verify tool invocations occur. Provisioning a tool-less narrator or unused tools is not completion of this requirement.

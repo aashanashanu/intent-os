@@ -10,6 +10,7 @@
 .aws/
 
 # Dependencies and generated build output
+backend/bin/
 node_modules/
 dist/
 build/

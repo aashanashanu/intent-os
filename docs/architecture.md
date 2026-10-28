@@ -58,7 +58,7 @@ The model client is advisory. It may extract intent or write evidence-grounded e
 4. **Repair and review:** A non-approved proposal may use deterministic repair within the same run. A repaired cart receives a new quote/revision. Only an `APPROVE` revision can be reviewed, and the review binds to its exact revision and quote.
 5. **Payment:** The backend reconstructs order facts from the persisted revision/quote, checks review and current policy, then creates a PayPal Sandbox order. PayPal SDK v6 obtains mandatory buyer approval. Immediately before capture, the backend rechecks expiry, current quote and policy; the browser never captures funds.
 6. **Activity and receipt:** Only a signature-verified `PAYMENT.CAPTURE.COMPLETED` webhook finalizes an AgentReceipt. Receipt events are scoped to the captured run (legacy records remain proposal-scoped).
-7. **History and intelligence:** Authenticated users can search shopping runs across owned intents, including unpaid decisions. The analyst receives backend-retrieved receipts/events and deterministic metrics with citations; Agent Builder tool invocation is not yet implemented.
+7. **History and intelligence:** Authenticated users can search shopping runs across owned intents, including unpaid decisions. After intent authorization, the analyst issues a short-lived capability and Agent Builder invokes four read-only backend MCP tools for receipts, decisions, detail, and deterministic metrics. Completed calls and retrieved evidence citations accompany tool-backed answers. Without Agent Builder configuration, Bedrock narration remains explicitly labeled. Deployment requires importing/attaching the remote MCP tools; see the integration guide.
 
 Quote snapshots use local server-owned files by default. The configured quote directory must be mounted durably across container replacement before deployed quote durability can be claimed. The simulator does not reserve inventory or place a physical order.
 
@@ -164,12 +164,22 @@ sequenceDiagram
         Receipts-->>API: Captured amounts and receipt evidence
         API->>API: Compute rates and prevented amount deterministically
     else Analyst
-        API->>Receipts: Search authorized receipt evidence
-        Receipts-->>API: Matching receipts
-        API->>Events: Search authorized decision-only evidence
-        Events-->>API: Matching events and run/revision identifiers
-        API->>Analyst: Question + scoped evidence + deterministic metrics (no credentials or other intents)
-        Analyst-->>API: Evidence-based answer
+        alt Agent Builder configured
+            API->>API: Issue short-lived owner/intent-bound capability
+            API->>Analyst: Question + transient capability, no browser session or persistence credentials
+            Analyst->>API: MCP tools/call with capability
+            API->>Access: Recheck owner/intent and capability expiry/call budget
+            API->>Receipts: Retrieve scoped receipts or detail
+            API->>Events: Retrieve scoped decisions or deterministic metric inputs
+            API-->>Analyst: Read-only tool results
+            Analyst-->>API: Answer citing retrieved evidence IDs
+            API->>API: Validate completed calls/citations; revoke capability
+        else Bedrock narration fallback
+            API->>Receipts: Search authorized receipt evidence
+            API->>Events: Retrieve matching decisions and deterministic metrics
+            API->>Analyst: Backend-retrieved evidence, explicitly no tool execution
+            Analyst-->>API: Grounded narration
+        end
     end
     API-->>UI: Results, metrics, or answer plus receipt/event/run/revision citations
 ```
@@ -192,7 +202,7 @@ When Elastic is disabled, the local in-memory adapters support development/tests
 
 ## External Setup Still Required
 
-- Elastic Agent Builder agent/tools must be provisioned in the target Kibana space using `node scripts/provision-elastic-agent-builder.mjs` and a short-lived management key.
-- Runtime Agent Builder chat requires `ELASTIC_KIBANA_URL`, a separate read-only `ELASTIC_AGENT_BUILDER_API_KEY`, and the `receipt-analyst` agent ID.
+- Import the four remote tools from the IntentOS MCP connector, then attach them in the target Kibana space using `INTENTOS_MCP_TOOL_IDS` and `node scripts/provision-elastic-agent-builder.mjs` with a short-lived management key. Raw ES|QL tools must not be attached to this user-facing agent.
+- Runtime Agent Builder chat requires `ELASTIC_KIBANA_URL`, a least-privilege `ELASTIC_AGENT_BUILDER_API_KEY` without broad Elasticsearch access, the `receipt-analyst` agent ID, and an MCP connector to `/api/analyst/mcp` with four imported tools attached. Capabilities live in one backend process for two minutes and are revoked when narration ends. Live tool/citation acceptance remains open.
 - Semantic ranking requires an Elasticsearch inference endpoint and `agent-receipt-v1.searchText` mapped as `semantic_text`. Otherwise lexical fallback remains active.
 - A clean deployed PayPal Sandbox → verified webhook → searchable receipt walkthrough and the under-three-minute demo recording remain release checks.

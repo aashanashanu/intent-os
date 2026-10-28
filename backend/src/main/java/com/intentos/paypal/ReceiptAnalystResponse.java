@@ -4,7 +4,12 @@ import java.util.List;
 
 public record ReceiptAnalystResponse(String answer, List<String> receiptIds, int evidenceCount,
     List<String> eventIds, List<String> runIds, List<String> revisionIds,
-    String retrievalMode, String narrationMode) {
+    String retrievalMode, String narrationMode, List<String> toolCalls) {
+    public ReceiptAnalystResponse(String answer, List<String> receiptIds, int evidenceCount,
+            List<String> eventIds, List<String> runIds, List<String> revisionIds,
+            String retrievalMode, String narrationMode) {
+        this(answer, receiptIds, evidenceCount, eventIds, runIds, revisionIds, retrievalMode, narrationMode, List.of());
+    }
     public ReceiptAnalystResponse(String answer, List<String> receiptIds, int evidenceCount) {
     this(answer, receiptIds, evidenceCount, List.of(), List.of(), List.of(), "LEXICAL", "LEGACY");
     }
@@ -14,5 +19,6 @@ public record ReceiptAnalystResponse(String answer, List<String> receiptIds, int
         eventIds = List.copyOf(eventIds);
         runIds = List.copyOf(runIds);
         revisionIds = List.copyOf(revisionIds);
+        toolCalls = List.copyOf(toolCalls);
     }
 }

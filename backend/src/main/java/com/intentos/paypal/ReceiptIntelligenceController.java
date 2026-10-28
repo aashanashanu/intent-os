@@ -59,11 +59,12 @@ public class ReceiptIntelligenceController {
             @PathVariable String intentId,
             @RequestBody ReceiptAnalystRequest body,
             HttpServletRequest request) {
-        requireAccess(intentId, request);
+        var authorizedIntent = accessService.findAccessible(intentId, request)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Intent not found"));
         if (body == null || body.question() == null || body.question().isBlank() || body.question().length() > 500) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a receipt question up to 500 characters");
         }
-        return analystService.answer(intentId, body.question().trim(), body.status());
+        return analystService.answer(authorizedIntent, body.question().trim(), body.status());
     }
 
     private void requireAccess(String intentId, HttpServletRequest request) {

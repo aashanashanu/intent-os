@@ -77,7 +77,9 @@ type PendingPayPalOrder = PayPalOrder & { intentId: string; runId: string; revis
 type AgentReceipt = {
   receiptId: string
   intentId: string
+  intent?: IntentContract
   amount: number
+  preventedAmount?: number
   currency: string
   paypalOrderId: string
   paypalCaptureId: string
@@ -142,7 +144,7 @@ type ShoppingHistoryPage = {
   incompleteData: boolean
 }
 
-type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number; eventIds: string[]; runIds: string[]; revisionIds: string[]; retrievalMode: string; narrationMode: string }
+type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number; eventIds: string[]; runIds: string[]; revisionIds: string[]; retrievalMode: string; narrationMode: string; toolCalls?: string[] }
 
 type IntentExtraction = {
   goal: string | null
@@ -171,9 +173,19 @@ type DecisionEvent = {
   occurredAt: string
   eventType: string
   decision: 'APPROVE' | 'MODIFY' | 'HOLD' | 'BLOCK'
-  calculatedTotal: number
+  calculatedTotal: number | null
   violations: Array<{ type: string; item: string | null; expected: string; actual: string | null }>
   message: string
+  proposalSnapshot?: TransactionProposal | null
+}
+
+function formatMoney(amount: number | null | undefined, currency = 'USD') {
+  if (amount === null || amount === undefined) return 'Not recorded'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
+}
+
+function formatEventTitle(eventType: string) {
+  return eventType.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function App() {
@@ -680,6 +692,34 @@ function App() {
     }
   }
 
+  const latestEvent = activityEvents.at(-1) ?? null
+  const latestRunReceipt = agentReceipts.find((receipt) => receipt.intentId === activeIntent?.intentId
+    && (!shoppingRun || !receipt.runId || receipt.runId === shoppingRun.runId)) ?? null
+  const latestDecision = shoppingProposal?.validation?.decision
+    ?? shoppingProposal?.revision?.validationDecision
+    ?? latestEvent?.decision
+    ?? null
+  const latestViolations = shoppingProposal?.validation?.violations
+    ?? latestEvent?.violations
+    ?? []
+  const latestRunItems = shoppingProposal?.quote?.lines.map((line) => `${line.quantity} × ${line.product.name}`)
+    ?? latestEvent?.proposalSnapshot?.items.map((item) => `${item.quantity} × ${item.name}`)
+    ?? []
+  const latestDecisionReason = latestViolations.length > 0
+    ? latestViolations.map((violation) => `${violation.type.replaceAll('_', ' ').toLowerCase()}${violation.item ? `: ${violation.item}` : ''}`).join(' · ')
+    : shoppingProposal?.outcome ?? latestEvent?.message ?? (latestDecision === 'APPROVE' ? 'No policy violations on the evaluated revision.' : 'No proposal has been evaluated yet.')
+  const paymentSummary = latestRunReceipt
+    ? `${formatMoney(latestRunReceipt.amount, latestRunReceipt.currency)} captured · verified receipt`
+    : paymentCapture
+      ? `${formatMoney(paymentCapture.amount, paymentCapture.currency)} capture response · waiting for verified webhook receipt`
+      : pendingPayPalOrder
+        ? `Buyer approval ${pendingPayPalOrder.status.toLowerCase()} · no capture recorded`
+        : shoppingReviewId
+          ? 'Cart reviewed · no PayPal charge recorded'
+          : latestDecision === 'APPROVE'
+            ? 'Not charged · exact cart review required'
+            : 'No PayPal charge recorded'
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -729,6 +769,52 @@ function App() {
               <p className="heading-copy">Your agents, operating within your intent.</p>
             </div>
             <button className="secondary-button" onClick={loadExample}><Sparkles size={16} />Load demo request</button>
+          </section>
+
+          <section className={`decision-brief ${latestDecision ? `decision-${latestDecision.toLowerCase()}` : 'decision-empty'}`} aria-labelledby="decision-brief-title">
+            <div className="decision-brief-heading">
+              <div>
+                <span className="panel-kicker">LATEST PURCHASE ACTIVITY</span>
+                <h2 id="decision-brief-title">{activeIntent ? activeIntent.goal : 'Your agent activity'}</h2>
+              </div>
+              <span className={`decision-badge ${latestDecision ? `badge-${latestDecision.toLowerCase()}` : ''}`}>
+                {latestDecision ?? (activeIntent ? 'NOT EVALUATED' : 'NO ACTIVE INTENT')}
+              </span>
+            </div>
+            <div className="decision-brief-grid">
+              <div className="decision-brief-item">
+                <span>What the agent did</span>
+                <strong>{latestRunItems.length > 0 ? latestRunItems.join(', ') : latestEvent ? formatEventTitle(latestEvent.eventType) : activeIntent ? 'Intent saved; no cart evaluated yet.' : 'Create or reopen an intent to see a run.'}</strong>
+                <small>{shoppingProposal?.quote?.total !== null && shoppingProposal?.quote?.total !== undefined
+                  ? `Quoted total ${formatMoney(shoppingProposal.quote.total, shoppingProposal.quote.currency)}`
+                  : latestEvent?.calculatedTotal !== null && latestEvent?.calculatedTotal !== undefined
+                    ? `Evaluated total ${formatMoney(latestEvent.calculatedTotal, activeIntent?.currency)}`
+                    : activeIntent ? `Budget ${formatMoney(activeIntent.maxAmount, activeIntent.currency)}` : 'No purchase facts yet'}</small>
+              </div>
+              <div className="decision-brief-item">
+                <span>Was it safe?</span>
+                <strong>{latestDecision === 'APPROVE' ? 'Within the recorded policy'
+                  : latestDecision === 'BLOCK' ? 'Blocked before payment'
+                    : latestDecision === 'HOLD' ? 'Waiting for evidence or review'
+                      : latestDecision === 'MODIFY' ? 'Changes recommended'
+                        : 'Not evaluated yet'}</strong>
+                <small>{latestDecision ? `Decision ${latestDecision}${shoppingProposal?.revision ? ` · revision ${shoppingProposal.revision.revisionNumber}` : ''}` : 'No policy decision recorded'}</small>
+              </div>
+              <div className="decision-brief-item">
+                <span>Why</span>
+                <strong>{latestDecisionReason}</strong>
+                <small>{latestEvent ? `Evidence event ${latestEvent.eventId}` : shoppingProposal?.revision ? `Run ${shoppingProposal.run.runId}` : 'Reason will appear after evaluation'}</small>
+              </div>
+              <div className="decision-brief-item payment-brief">
+                <span>What PayPal charged</span>
+                <strong>{paymentSummary}</strong>
+                <small>{latestRunReceipt ? `Capture ${latestRunReceipt.paypalCaptureId}` : paymentCapture ? `Order ${paymentCapture.orderId}` : pendingPayPalOrder ? `Order ${pendingPayPalOrder.orderId}` : 'Only a verified capture receipt confirms a charge'}</small>
+              </div>
+            </div>
+            <div className="decision-brief-links">
+              <a href="#activity">Inspect decision timeline <ArrowUpRight size={13} /></a>
+              <a href="#receipts">Open AgentReceipts <ArrowUpRight size={13} /></a>
+            </div>
           </section>
 
           <section className="metrics" aria-label="Purchase summary">
@@ -835,7 +921,7 @@ function App() {
                   <div><h2>Recent activity</h2><p>Decision events across your agents</p></div>
                   <button className="text-button" onClick={explainDecision} disabled={!activeIntent || activityEvents.length === 0 || explanationLoading}><Sparkles size={14} />{explanationLoading ? 'Explaining…' : 'Explain decision'}</button>
                 </div>
-                {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No agent activity yet</strong><span>Validated proposals and repair decisions will appear here.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.proposalId} · ${event.calculatedTotal.toFixed(2)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><small>{event.message}</small>{event.violations.length > 0 && <small>{event.violations.map((violation) => violation.type.replaceAll('_', ' ')).join(' · ')}</small>}</div></article>)}</div>}
+                {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No agent activity yet</strong><span>Validated proposals and repair decisions will appear here.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{formatEventTitle(event.eventType)} · {event.decision}</strong><span>{event.proposalId} · {formatMoney(event.calculatedTotal, activeIntent?.currency)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><small>{event.message}</small>{event.violations.length > 0 && <small>{event.violations.map((violation) => violation.type.replaceAll('_', ' ')).join(' · ')}</small>}</div></article>)}</div>}
                 {modelExplanation && <p className="model-explanation" role="status"><strong>Evidence-based explanation</strong>{modelExplanation}</p>}
               </section>
 
@@ -888,12 +974,57 @@ function App() {
                 {agentReceipts.length === 0
                   ? <div className="empty-activity"><div className="empty-glyph"><ReceiptText size={20} /></div><strong>No matching receipts</strong><span>Completed receipts appear after a verified PayPal capture webhook.</span></div>
                   : <div className="receipt-list">{agentReceipts.map((receipt) => <article className="receipt-row" key={receipt.receiptId}><div className="event-indicator approve"><ReceiptText size={14} /></div><div className="event-copy"><strong>{receipt.currency} {receipt.amount.toFixed(2)} · {receipt.captureStatus}</strong><span>{receipt.paypalCaptureId} · Order {receipt.paypalOrderId}</span><small>{receipt.proposalHistory.length} proposal snapshot{receipt.proposalHistory.length === 1 ? '' : 's'} · {receipt.repairs.length} repair event{receipt.repairs.length === 1 ? '' : 's'} · webhook {receipt.webhookEventId}</small><small>{new Date(receipt.createdAt).toLocaleString()}</small></div><button className="icon-button" aria-label={`Open receipt ${receipt.receiptId}`} onClick={() => void openReceiptDetail(receipt)}><ArrowUpRight size={15} /></button></article>)}</div>}
-                {receiptDetail && <div className="receipt-detail" aria-label="AgentReceipt detail"><div className="repair-result-heading"><strong>{receiptDetail.receiptId} · {receiptDetail.finalDecision}</strong><button className="icon-button" aria-label="Close receipt detail" onClick={() => setReceiptDetail(null)}><X size={14} /></button></div><p>{receiptDetail.runId ? `Run ${receiptDetail.runId} · revision ${receiptDetail.revisionId ?? 'legacy attribution unavailable'}` : 'Legacy receipt · run attribution unavailable'}</p><div className="repair-items">{receiptDetail.proposalHistory.map((proposal) => <div key={proposal.proposalId}><strong>{proposal.proposalId} · {proposal.currency} {proposal.total.toFixed(2)}</strong>{proposal.items.map((item, index) => <span key={`${item.name}-${index}`}>{item.quantity} × {item.name} · {proposal.currency} {item.unitPrice.toFixed(2)} each</span>)}</div>)}<div className="repair-total"><span>Captured by PayPal Sandbox</span><strong>{receiptDetail.currency} {receiptDetail.amount.toFixed(2)}</strong></div></div>{receiptDetail.violations.length > 0 && <p>Recorded violations: {receiptDetail.violations.map((violation) => `${violation.type}${violation.item ? ` (${violation.item})` : ''}`).join(', ')}</p>}<div className="receipt-timeline">{receiptDetail.activityTimeline.map((event) => <article key={event.eventId}><strong>{event.eventType.replaceAll('_', ' ')} · {event.decision}</strong><span>{event.revisionId ?? event.proposalId}{event.calculatedTotal === null ? '' : ` · ${receiptDetail.currency} ${event.calculatedTotal.toFixed(2)}`}</span><small>{event.message}</small></article>)}</div></div>}
+                {receiptDetail && <section className="receipt-detail" aria-label="AgentReceipt detail">
+                  <header className="receipt-detail-header">
+                    <div><span className="panel-kicker">VERIFIED AGENT RECEIPT</span><h3>{receiptDetail.receiptId}</h3><p>{receiptDetail.runId ? `Run ${receiptDetail.runId} · captured revision ${receiptDetail.revisionId ?? 'not attributed'}` : 'Legacy receipt · run attribution unavailable'}</p></div>
+                    <button className="icon-button" aria-label="Close receipt detail" onClick={() => setReceiptDetail(null)}><X size={15} /></button>
+                  </header>
+                  <div className="receipt-facts">
+                    <div><span>What you asked for</span><strong>{receiptDetail.intent?.naturalLanguageRequest ?? receiptDetail.intent?.goal ?? 'Original request unavailable'}</strong><small>{receiptDetail.intent ? `Budget ${formatMoney(receiptDetail.intent.maxAmount, receiptDetail.intent.currency)}` : `Intent ${receiptDetail.intentId}`}</small></div>
+                    <div><span>Safety decision</span><strong className={`receipt-decision receipt-decision-${receiptDetail.finalDecision.toLowerCase()}`}>{receiptDetail.finalDecision}</strong><small>{receiptDetail.violations.length === 0 ? 'No violations recorded on the receipt' : `${receiptDetail.violations.length} recorded policy finding${receiptDetail.violations.length === 1 ? '' : 's'}`}</small></div>
+                    <div><span>PayPal captured</span><strong>{formatMoney(receiptDetail.amount, receiptDetail.currency)}</strong><small>{receiptDetail.captureStatus} · {new Date(receiptDetail.createdAt).toLocaleString()}</small></div>
+                    <div><span>Prevented on this run</span><strong>{formatMoney(receiptDetail.preventedAmount ?? 0, receiptDetail.currency)}</strong><small>Recorded same-run proposal reduction; not a separate charge</small></div>
+                  </div>
+                  <section className="receipt-detail-section">
+                    <div className="receipt-subheading"><h4>What the agent proposed</h4><span>{receiptDetail.proposalHistory.length} snapshot{receiptDetail.proposalHistory.length === 1 ? '' : 's'}</span></div>
+                    {receiptDetail.proposalHistory.length === 0 ? <p className="receipt-empty-note">Proposal details were not retained for this receipt.</p> : <div className="proposal-history-list">{receiptDetail.proposalHistory.map((proposal, index) => <article className="proposal-snapshot" key={proposal.proposalId}>
+                      <header><div><strong>{index === 0 && receiptDetail.proposalHistory.length > 1 ? 'Initial proposal' : index === receiptDetail.proposalHistory.length - 1 ? 'Captured proposal' : `Proposal ${index + 1}`}</strong><span>{proposal.proposalId}</span></div><strong>{formatMoney(proposal.total, proposal.currency)}</strong></header>
+                      <div className="proposal-line-list">{proposal.items.map((item, itemIndex) => <div className="proposal-line" key={`${proposal.proposalId}-${itemIndex}`}><span>{item.quantity} × {item.name}{item.recurring || item.subscription ? ' · recurring' : item.addOn ? ' · add-on' : ''}</span><strong>{formatMoney(item.unitPrice * item.quantity, proposal.currency)}</strong></div>)}
+                        <div className="proposal-line"><span>Shipping</span><strong>{formatMoney(proposal.shipping, proposal.currency)}</strong></div>
+                        <div className="proposal-line"><span>Tax</span><strong>{formatMoney(proposal.tax, proposal.currency)}</strong></div>
+                        <div className="proposal-line proposal-line-total"><span>Proposal total</span><strong>{formatMoney(proposal.total, proposal.currency)}</strong></div>
+                      </div>
+                    </article>)}</div>}
+                  </section>
+                  <section className="receipt-detail-section">
+                    <div className="receipt-subheading"><h4>Intent checks and repairs</h4><span>{receiptDetail.repairs.length} repair event{receiptDetail.repairs.length === 1 ? '' : 's'}</span></div>
+                    {receiptDetail.violations.length === 0 ? <p className="receipt-empty-note">No policy violations are recorded for this receipt.</p> : <div className="receipt-violation-list">{receiptDetail.violations.map((violation, index) => <article className="receipt-violation" key={`${violation.type}-${violation.item ?? index}`}>
+                      <strong>{formatEventTitle(violation.type)}{violation.item ? ` · ${violation.item}` : ''}</strong>
+                      <span>Expected: {violation.expected || 'Not recorded'}</span><span>Observed: {violation.actual ?? 'Not recorded'}</span>
+                    </article>)}</div>}
+                    {receiptDetail.repairs.length > 0 && <div className="receipt-repair-list">{receiptDetail.repairs.map((event) => <article key={event.eventId}><strong>{formatEventTitle(event.eventType)} · {event.decision}</strong><span>{event.message}</span><small>{event.eventId} · {new Date(event.occurredAt).toLocaleString()}</small></article>)}</div>}
+                  </section>
+                  <section className="receipt-detail-section">
+                    <div className="receipt-subheading"><h4>Decision timeline</h4><span>{receiptDetail.activityTimeline.length} events</span></div>
+                    {receiptDetail.activityTimeline.length === 0 ? <p className="receipt-empty-note">No timeline events were retained.</p> : <ol className="receipt-timeline">{[...receiptDetail.activityTimeline].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt)).map((event) => <li key={event.eventId}>
+                      <span className={`timeline-marker timeline-marker-${event.decision.toLowerCase()}`} />
+                      <div><div className="timeline-event-heading"><strong>{formatEventTitle(event.eventType)} · {event.decision}</strong><time>{new Date(event.occurredAt).toLocaleString()}</time></div>
+                        <p>{event.message}</p><small>{event.eventId} · {event.revisionId ?? event.proposalId}{event.calculatedTotal === null ? '' : ` · ${formatMoney(event.calculatedTotal, receiptDetail.currency)}`}</small>
+                        {event.violations.length > 0 && <small>Findings: {event.violations.map((violation) => formatEventTitle(violation.type)).join(', ')}</small>}
+                      </div>
+                    </li>)}</ol>}
+                  </section>
+                  <section className="receipt-payment-evidence">
+                    <div className="receipt-subheading"><h4>PayPal Sandbox evidence</h4><span>Verified webhook</span></div>
+                    <dl><div><dt>Order</dt><dd>{receiptDetail.paypalOrderId}</dd></div><div><dt>Capture</dt><dd>{receiptDetail.paypalCaptureId}</dd></div><div><dt>Order status</dt><dd>{receiptDetail.orderStatus}</dd></div><div><dt>Capture status</dt><dd>{receiptDetail.captureStatus}</dd></div><div><dt>Webhook event</dt><dd>{receiptDetail.webhookEventId}</dd></div></dl>
+                    <p>Payment is to the configured PayPal Sandbox merchant. It does not confirm physical retailer fulfillment.</p>
+                  </section>
+                </section>}
                 <form className="receipt-analyst" onSubmit={askReceiptAnalyst}>
                   <label className="form-field" htmlFor="receipt-analyst-question"><span>Ask the Receipt Analyst</span><input id="receipt-analyst-question" value={analystQuestion} onChange={(event) => setAnalystQuestion(event.target.value)} placeholder="Why was this purchase approved?" maxLength={500} /></label>
                   <button className="primary-button" type="submit" disabled={!activeIntent || !analystQuestion.trim() || analystLoading}><Sparkles size={14} />{analystLoading ? 'Reviewing evidence…' : 'Ask'}</button>
                 </form>
-                {analystResult && <div className="analyst-answer" role="status"><strong>Receipt Analyst · {analystResult.evidenceCount} receipts · {analystResult.eventIds.length} decision events</strong><p>{analystResult.answer}</p><small>{analystResult.retrievalMode} retrieval · {analystResult.narrationMode} · Evidence: {[...analystResult.receiptIds, ...analystResult.runIds, ...analystResult.revisionIds, ...analystResult.eventIds].join(', ') || 'none'}</small></div>}
+                {analystResult && <div className="analyst-answer" role="status"><strong>Receipt Analyst · {analystResult.evidenceCount} receipts · {analystResult.eventIds.length} decision events</strong><p>{analystResult.answer}</p>{!!analystResult.toolCalls?.length && <small>Verified tool execution: {analystResult.toolCalls.join(' → ')}</small>}<small>{analystResult.retrievalMode} retrieval · {analystResult.narrationMode} · Evidence: {[...analystResult.receiptIds, ...analystResult.runIds, ...analystResult.revisionIds, ...analystResult.eventIds].join(', ') || 'none'}</small></div>}
               </section>
 
             </div>

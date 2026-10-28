@@ -25,6 +25,10 @@ if (space && !/^[A-Za-z0-9_-]+$/.test(space)) throw new Error('KIBANA_SPACE has 
 
 const configPath = fileURLToPath(new URL('../elastic/agent-builder/receipt-analyst.json', import.meta.url));
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
+const mcpToolIds = (process.env.INTENTOS_MCP_TOOL_IDS || '').split(',').map((id) => id.trim()).filter(Boolean);
+if (mcpToolIds.length !== 4 || new Set(mcpToolIds).size !== 4) {
+  throw new Error('Set INTENTOS_MCP_TOOL_IDS to the four tool IDs imported from the IntentOS MCP connector.');
+}
 const apiPrefix = `${space && space !== 'default' ? `/s/${space}` : ''}/api/agent_builder`;
 
 async function request(method, path, body) {
@@ -43,20 +47,6 @@ async function request(method, path, body) {
   throw new Error(`Kibana Agent Builder API ${method} ${path} failed with HTTP ${status}.`);
 }
 
-async function upsertTool(tool) {
-  const path = `/tools/${encodeURIComponent(tool.id)}`;
-  let exists = false;
-  try {
-    await request('GET', path);
-    exists = true;
-  } catch (error) {
-    if (!String(error.message).includes('HTTP 404')) throw error;
-  }
-  const { type, ...updateBody } = tool;
-  if (exists) await request('PUT', path, updateBody);
-  else await request('POST', '/tools', tool);
-}
-
 async function upsertAgent(agent) {
   const path = `/agents/${encodeURIComponent(agent.id)}`;
   let exists = false;
@@ -71,6 +61,14 @@ async function upsertAgent(agent) {
   else await request('POST', '/agents', agent);
 }
 
-for (const tool of config.tools) await upsertTool(tool);
+const remoteNames = new Set();
+for (const id of mcpToolIds) {
+  const tool = await request('GET', `/tools/${encodeURIComponent(id)}`);
+  if (tool.type !== 'mcp') throw new Error(`Tool ${id} is not a remote MCP tool.`);
+  const name = ['search_receipts', 'get_receipt', 'get_decisions', 'get_metrics'].find((candidate) => id.endsWith(`.${candidate}`));
+  if (!name || remoteNames.has(name)) throw new Error(`Tool ${id} does not match the required IntentOS MCP tool set.`);
+  remoteNames.add(name);
+}
+config.agent.configuration.tools = [{ tool_ids: mcpToolIds }];
 await upsertAgent(config.agent);
-console.log(`Provisioned ${config.tools.length} Agent Builder tools and agent "${config.agent.id}".`);
+console.log(`Attached ${mcpToolIds.length} imported MCP tools to agent "${config.agent.id}".`);
