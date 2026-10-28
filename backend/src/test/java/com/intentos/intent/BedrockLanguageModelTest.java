@@ -148,6 +148,38 @@ class BedrockLanguageModelTest {
     }
 
     @Test
+    void optionalReasoningQuestionsDoNotBlockCompleteIntent() {
+        when(client.converse(any(ConverseRequest.class)))
+                .thenReturn(response("""
+                        {"goal":"Development laptop","maxAmount":1000,"currency":"USD","allowedCategories":["laptop"],"requiredAttributes":{"ram":"16GB"},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":0.95,"clarificationQuestions":[]}
+                        """))
+                .thenReturn(response("""
+                        {"clarificationQuestions":["Which operating system do you prefer?","Do you need a discrete GPU?"],"conflicts":[]}
+                        """));
+
+        IntentExtractionResult result = model.extract("Find a development laptop with 16GB RAM under $1,000.");
+
+        assertFalse(result.needsClarification());
+        assertTrue(result.clarificationQuestions().isEmpty());
+    }
+
+    @Test
+    void reasoningConflictStillRequiresClarification() {
+        when(client.converse(any(ConverseRequest.class)))
+                .thenReturn(response("""
+                        {"goal":"Development laptop","maxAmount":1000,"currency":"USD","allowedCategories":["laptop"],"requiredAttributes":{},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":0.95,"clarificationQuestions":[]}
+                        """))
+                .thenReturn(response("""
+                        {"clarificationQuestions":[],"conflicts":["The request asks for a subscription but disallows subscriptions."]}
+                        """));
+
+        IntentExtractionResult result = model.extract("Buy a laptop under $1,000 and include a subscription, but no subscriptions.");
+
+        assertTrue(result.needsClarification());
+        assertTrue(result.clarificationQuestions().getFirst().contains("conflict"));
+    }
+
+    @Test
     void rejectsIncompleteModelJsonWithoutFallback() {
         when(client.converse(any(ConverseRequest.class))).thenReturn(response("""
                 {"goal":"Laptop","maxAmount":1000,"currency":"USD"}

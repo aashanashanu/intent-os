@@ -44,6 +44,9 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             """;
     private static final String REASONING_INSTRUCTIONS = """
             Review a draft purchase intent for ambiguity, missing essential constraints, and contradictions with the original request.
+            Treat a product category and budget as sufficient to draft an intent. Do not ask for optional preferences such as brand,
+            operating system, processor, storage, screen size, or software unless the original request explicitly requires them.
+            Only report clarification questions for essential missing information that prevents identifying the purchase or budget.
             Do not make an approval decision, change payment permissions, calculate totals, or authorize payment.
             Return exactly one JSON object with clarificationQuestions (array of strings) and conflicts (array of strings).
             Return empty arrays when there is no unresolved ambiguity or contradiction. Do not invent user preferences.
@@ -291,8 +294,8 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             if (!questionsNode.isArray() || !conflictsNode.isArray()) {
                 throw new IllegalArgumentException("Reasoning review questions and conflicts must be arrays");
             }
+            stringsList(questionsNode);
             List<String> questions = new ArrayList<>(draft.clarificationQuestions());
-            questions.addAll(stringsList(questionsNode));
             stringsList(conflictsNode).forEach(conflict -> questions.add("Please resolve this conflict: " + conflict));
             boolean needsClarification = draft.needsClarification() || !questions.isEmpty();
             BigDecimal confidence = needsClarification
