@@ -280,6 +280,8 @@ function App() {
   })
   const [paymentCapture, setPaymentCapture] = useState<PayPalCapture | null>(null)
   const [agentReceipts, setAgentReceipts] = useState<AgentReceipt[]>([])
+  const [verifiedReceipts, setVerifiedReceipts] = useState<AgentReceipt[]>([])
+  const [receiptEvidenceError, setReceiptEvidenceError] = useState('')
   const [receiptDetail, setReceiptDetail] = useState<AgentReceipt | null>(null)
   const [receiptMetrics, setReceiptMetrics] = useState<ReceiptMetrics | null>(null)
   const [receiptQuery, setReceiptQuery] = useState('')
@@ -371,10 +373,19 @@ function App() {
           fetch(`/api/intents/${intentId}/receipts/metrics`, { signal: controller.signal }),
         ])
         if (eventsResponse.ok) setActivityEvents(await eventsResponse.json() as DecisionEvent[])
-        if (receiptsResponse.ok && !receiptQuery.trim() && !receiptStatus) setAgentReceipts(await receiptsResponse.json() as AgentReceipt[])
+        if (receiptsResponse.status === 401) {
+          setReceiptEvidenceError('Your sign-in session has expired. Sign in with PayPal again, then reopen this purchase from Shopping history to view its receipt.')
+        } else if (!receiptsResponse.ok) {
+          setReceiptEvidenceError('The receipt could not be checked. Retrying automatically; this does not mean your payment failed. Do not pay again.')
+        } else {
+          const receipts = await receiptsResponse.json() as AgentReceipt[]
+          setVerifiedReceipts(receipts)
+          setReceiptEvidenceError('')
+          if (!receiptQuery.trim() && !receiptStatus) setAgentReceipts(receipts)
+        }
         if (metricsResponse.ok) setReceiptMetrics(await metricsResponse.json() as ReceiptMetrics)
       } catch {
-        return
+        if (!controller.signal.aborted) setReceiptEvidenceError('Connection interrupted while checking your receipt. Retrying automatically. Do not pay again.')
       }
     }
     void refreshEvidence()
@@ -413,6 +424,8 @@ function App() {
       if (!response.ok) throw new Error('The API rejected this intent. Check the required fields and try again.')
       const createdIntent = await response.json() as IntentContract
       setActiveIntent(createdIntent)
+      setVerifiedReceipts([])
+      setReceiptEvidenceError('')
       setReceiptQuery('')
       setReceiptStatus('')
       setReceiptDetail(null)
@@ -517,6 +530,8 @@ function App() {
       if (!intentResponse.ok) throw new Error('This intent is no longer accessible.')
       const intent = await intentResponse.json() as IntentContract
       setActiveIntent(intent)
+      setVerifiedReceipts([])
+      setReceiptEvidenceError('')
       setActivityEvents([])
       setAgentReceipts([])
       setReceiptDetail(null)
@@ -816,7 +831,7 @@ function App() {
   }
 
   const latestEvent = activityEvents.at(-1) ?? null
-  const latestRunReceipt = agentReceipts.find((receipt) => receipt.intentId === activeIntent?.intentId
+  const latestRunReceipt = verifiedReceipts.find((receipt) => receipt.intentId === activeIntent?.intentId
     && (!shoppingRun || !receipt.runId || receipt.runId === shoppingRun.runId)) ?? null
   const latestDecision = shoppingProposal?.validation?.decision
     ?? shoppingProposal?.revision?.validationDecision
@@ -840,12 +855,12 @@ function App() {
     { title: 'Understand intent', detail: extracting ? 'Reading your goal and boundaries' : draftReady && !saving ? 'Waiting for your confirmation' : activeIntent ? 'Purchase boundaries recorded' : 'Intent Agent', done: !!activeIntent, running: extracting || (draftReady && !saving) || (saving && agentOperation === 'intent'), icon: Fingerprint },
     { title: 'Shop & check', detail: agentOperation === 'repair' ? 'Repairing and rechecking the cart' : agentOperation === 'shopping' ? 'Finding a cart and checking your intent' : latestDecision ? latestDecision === 'APPROVE' ? 'Cart passed intent checks' : 'Payment paused for policy findings' : 'Shopping Agent + IntentOS', done: !!shoppingProposal, running: agentOperation === 'shopping' || agentOperation === 'repair', icon: ShieldCheck },
     { title: 'You approve', detail: pendingPayPalOrder ? 'Waiting for PayPal buyer approval' : shoppingReviewId ? 'Exact cart reviewed' : 'Review cart, then approve in PayPal', done: !!shoppingReviewId || !!paymentCapture || !!latestRunReceipt, running: checkoutBusy || !!pendingPayPalOrder, icon: WalletCards },
-    { title: 'AgentReceipt', detail: latestRunReceipt ? 'Verified payment evidence received' : paymentCapture ? 'Waiting for verified PayPal webhook' : 'An evidence-backed purchase record', done: !!latestRunReceipt, running: !!paymentCapture && !latestRunReceipt, icon: ReceiptText },
+    { title: 'AgentReceipt', detail: latestRunReceipt ? 'Verified payment evidence received' : receiptEvidenceError ? 'Receipt lookup needs attention' : paymentCapture ? 'Waiting for verified PayPal webhook' : 'An evidence-backed purchase record', done: !!latestRunReceipt, running: !!paymentCapture && !latestRunReceipt && !receiptEvidenceError, icon: ReceiptText },
   ]
   const paymentSummary = latestRunReceipt
     ? `${formatMoney(latestRunReceipt.amount, latestRunReceipt.currency)} captured · verified receipt`
     : paymentCapture
-      ? `${formatMoney(paymentCapture.amount, paymentCapture.currency)} capture response · waiting for verified webhook receipt`
+      ? `${formatMoney(paymentCapture.amount, paymentCapture.currency)} capture response · ${receiptEvidenceError ? 'receipt lookup needs attention' : 'waiting for verified webhook receipt'}`
       : pendingPayPalOrder
         ? `Buyer approval ${pendingPayPalOrder.status.toLowerCase()} · no capture recorded`
         : shoppingReviewId
@@ -1061,7 +1076,7 @@ function App() {
                   {shoppingProposal.revision && (shoppingProposal.validation?.decision ?? shoppingProposal.revision.validationDecision) === 'APPROVE' && !shoppingReviewId && <button className="primary-button" onClick={reviewShoppingRevision} disabled={busy}><Check size={14} />{agentOperation === 'review' ? 'Recording your review' : 'I have reviewed this cart'}</button>}
                   {shoppingReviewId && !pendingPayPalOrder && !paymentCapture && !latestRunReceipt && <div className="sandbox-checkout-note"><strong>Cart review recorded</strong><span>You reviewed this exact revision. PayPal buyer approval is still required; no payment has been made.</span><button className="primary-button checkout-button" onClick={checkoutShoppingRevision} disabled={busy || !integrations?.paypalClientId || !auth.authenticated}><WalletCards size={16} />{checkoutBusy ? 'Creating PayPal order…' : !auth.authenticated ? 'Sign in to continue' : 'Continue to PayPal Sandbox'}</button></div>}
                 </div>}
-                {(paymentCapture || latestRunReceipt) && <div className="payment-outcome" role="status">{latestRunReceipt ? <><ReceiptText size={22} /><div><strong>Your verified AgentReceipt is ready</strong><p>PayPal confirmed {formatMoney(latestRunReceipt.amount, latestRunReceipt.currency)}. Your intent, cart decisions, and payment evidence are recorded together.</p><button className="text-button" onClick={() => { void openReceiptDetail(latestRunReceipt); window.location.hash = 'receipts' }}>Open my receipt <ArrowUpRight size={14} /></button></div></> : <><LoaderCircle size={22} className="spin" /><div><strong>PayPal returned {paymentCapture?.status.toLowerCase()}</strong><p>{formatMoney(paymentCapture?.amount, paymentCapture?.currency)} capture response received. Waiting for the verified PayPal webhook before issuing your AgentReceipt.</p></div></>}</div>}
+                {(paymentCapture || latestRunReceipt) && <div className="payment-outcome" role="status">{latestRunReceipt ? <><ReceiptText size={22} /><div><strong>Your verified AgentReceipt is ready</strong><p>PayPal confirmed {formatMoney(latestRunReceipt.amount, latestRunReceipt.currency)}. Your intent, cart decisions, and payment evidence are recorded together.</p><button className="text-button" onClick={() => { void openReceiptDetail(latestRunReceipt); window.location.hash = 'receipts' }}>Open my receipt <ArrowUpRight size={14} /></button></div></> : receiptEvidenceError ? <><ReceiptText size={22} /><div><strong>Receipt lookup needs attention</strong><p>{receiptEvidenceError}</p><a className="text-button" href="/api/auth/paypal">Sign in with PayPal <ArrowUpRight size={14} /></a></div></> : <><LoaderCircle size={22} className="spin" /><div><strong>PayPal returned {paymentCapture?.status.toLowerCase()}</strong><p>{formatMoney(paymentCapture?.amount, paymentCapture?.currency)} capture response received. Waiting for the verified PayPal webhook before issuing your AgentReceipt.</p></div></>}</div>}
                 {pendingPayPalOrder && <div className="sandbox-checkout-note pending-payment" role="status">
                   <strong>PayPal order {pendingPayPalOrder.status}</strong>
                   <span>Order {pendingPayPalOrder.orderId} · approved cart {pendingPayPalOrder.revisionId}</span>
@@ -1099,6 +1114,7 @@ function App() {
               </section>
 
               <section className="activity-section receipt-section" id="receipts">
+                {receiptEvidenceError && !latestRunReceipt && <p className="notice error" role="alert">{receiptEvidenceError}</p>}
                 <div className="section-heading activity-heading">
                   <div><h2>AgentReceipt intelligence</h2><p>Searchable evidence, policy metrics, and {integrations?.elasticAgentBuilderConfigured ? 'Elastic Agent Builder' : 'grounded analysis'}</p></div>
                   <button className="text-button" onClick={() => { if (activeIntent) { void searchReceipts(); void loadReceiptMetrics(activeIntent.intentId) } }} disabled={!activeIntent || receiptsLoading}><RefreshCw size={14} />Refresh</button>
