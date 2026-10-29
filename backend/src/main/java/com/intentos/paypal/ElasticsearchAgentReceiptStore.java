@@ -53,7 +53,7 @@ public class ElasticsearchAgentReceiptStore implements AgentReceiptStore {
         ensureSearchMapping();
         try {
             client.put().uri("/{index}/_create/{id}", INDEX, receipt.paypalOrderId())
-                    .body(receipt).retrieve().toBodilessEntity();
+                    .body(objectMapper.<JsonNode>valueToTree(receipt)).retrieve().toBodilessEntity();
             return true;
         } catch (HttpClientErrorException.Conflict exception) {
             return false;
