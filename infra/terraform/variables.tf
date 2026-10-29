@@ -11,7 +11,7 @@ variable "project_name" {
 }
 
 variable "ec2_instance_type" {
-  description = "EC2 instance size for the Spring Boot backend. t3.micro is the low-cost 1 GiB option for low-traffic demos."
+  description = "EC2 instance size for the Spring Boot backend. t3.micro is the low-cost 1 GiB option for low-traffic examples."
   type        = string
   default     = "t3.micro"
 }

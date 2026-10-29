@@ -1,5 +1,7 @@
 # Integration Setup
 
+For a complete installation sequence, follow [infrastructure-setup.md](infrastructure-setup.md). This reference describes provider-specific behavior and security boundaries.
+
 Never post credentials in chat, commit them, or place them in frontend variables. Use a local ignored `.env` file or environment variables in the backend process. `.env.example` contains the variable names.
 
 ## PayPal Sandbox and Login
@@ -20,7 +22,7 @@ Set `INTENTOS_MERCHANT_CATALOG` to `file:/absolute/path/catalog.json` to load op
 
 Intent-owned routes under `/api/intents/{intentId}/merchant` expose product search/detail, calculated quotes, and quote verification. `/api/intents/{intentId}/shopping-runs` starts a run; `/propose` invokes the configured Nova Lite SHOPPING task against at most 50 candidate IDs; revisions, deterministic repair, review, and PayPal order creation remain bound to the run and quote. A `READY` quote means evidence is complete, not that Java policy approved it. Missing cost/terms produce `HOLD`.
 
-The user must review the exact approved revision before the backend creates an itemized PayPal Orders v2 order from the stored quote. The browser uses PayPal JavaScript SDK v6 for mandatory buyer approval; only the approval callback calls the server capture endpoint. The server rechecks intent expiry, current policy, quote freshness, review, amount, and currency before capture.
+The user must review the exact approved revision before the backend creates an itemized PayPal Orders v2 order from the stored quote. The browser follows the returned PayPal hosted approval URL. After the buyer returns, **Check approval and capture** invokes the server capture endpoint; the server verifies PayPal approval rather than trusting URL parameters. The server rechecks intent expiry, current policy, quote freshness, review, amount, and currency before capture. The current frontend does not mount PayPal JavaScript SDK checkout buttons.
 
 `PAYMENT.CAPTURE.COMPLETED` webhook evidence, not the browser or capture response, finalizes an AgentReceipt. Receipt lookup is `GET /api/intents/{intentId}/receipts`. The receipt includes the Intent Contract, proposal snapshots available from validation/repair events, policy violations, repair events, final decision, authoritative PayPal order/capture IDs and status, amount, webhook ID, and activity timeline. Duplicate webhook IDs and duplicate receipt writes are idempotent.
 
@@ -37,7 +39,7 @@ set +a
 
 The backend uses Amazon Bedrock Converse with model IDs configured per task: Nova Micro for intent extraction and explanation, and Nova Lite for intent reasoning, shopping candidate selection, and repair suggestions. The SHOPPING response is schema-checked and may reference only server-supplied candidate IDs; the server calculates quote amounts and Java policy alone owns APPROVE, MODIFY, HOLD, and BLOCK.
 
-The defaults use `amazon.nova-micro-v1:0` and `amazon.nova-lite-v1:0` in `us-east-1`. The Terraform EC2 role is scoped to invoke those two Nova foundation models in that region. Model availability and pricing can change; verify model access in the Bedrock console before enabling inference.
+The defaults use `amazon.nova-micro-v1:0` and `amazon.nova-lite-v1:0` in `us-east-1`. The Terraform EC2 role permits invocation of `amazon.nova-*` foundation-model resources in the provisioned region. Model availability and pricing can change; verify model access in the Bedrock console before enabling inference and tighten the policy to exact model resources when appropriate.
 
 Nova Micro and Nova Lite do not currently support Bedrock constrained structured output. The extraction prompt requests JSON, then the backend parses and validates required fields, types, USD currency, confidence, and clarification state. Malformed output returns an error; there is no rule-based fallback.
 
@@ -71,7 +73,7 @@ Use the same request set to compare models: clear laptop request, missing budget
    ```
 
 4. Restart the backend. Intent Contracts use `intent-v1`; immutable decision events use append-only `intent-event-v1`; merchant quotes use create-only `merchant-quote-v1`; runs, revisions, and reviews use their `shopping-*-v1` indexes; checkout state uses `paypal-checkout-v1`; processed webhook IDs use `paypal-webhook-v1`; and unique AgentReceipts use `agent-receipt-v1`. For semantic ranking, configure an Elasticsearch inference endpoint and map `agent-receipt-v1.searchText` as `semantic_text` before receipt ingestion. This capability is not yet verified for the current deployment; lexical search remains the available behavior until verified.
-5. Receipt search is `GET /api/intents/{intentId}/receipts/search?q=...&status=...`; results are always scoped to the accessible intent. Metrics are `GET /api/intents/{intentId}/receipts/metrics`. With Elastic enabled, the backend retrieves decision rows with ES|QL and computes compliance, violation, repair, intervention, captured and prevented amounts deterministically in Java. Confirm contracts, checkout state, events, and receipts remain available after a backend restart. Missing Elasticsearch endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
+5. Receipt search is `GET /api/intents/{intentId}/receipts/search?q=...&status=...`; results are always scoped to the accessible intent. Metrics are `GET /api/intents/{intentId}/receipts/metrics`. With Elastic enabled, the backend retrieves ordered decision rows using Elasticsearch `_search` with `search_after` pagination and computes compliance, violation, repair, intervention, captured and prevented amounts deterministically in Java. This path does not currently execute ES|QL. Confirm contracts, checkout state, events, quotes, and receipts remain available after a backend restart. Missing Elasticsearch endpoint/key while Elastic is enabled is a startup error by design. With Elastic disabled, payment sessions, deduplication markers, and receipts are in-memory and reset at process restart; do not treat that mode as durable payment evidence.
 
 ### Elastic Agent Builder and Receipt Analyst
 

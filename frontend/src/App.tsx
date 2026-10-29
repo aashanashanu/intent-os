@@ -306,6 +306,14 @@ function App() {
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`)
     }
 
+    const returnUrl = new URL(window.location.href)
+    if (['return', 'cancel'].includes(returnUrl.searchParams.get('paypal') ?? '')) {
+      for (const parameter of ['paypal', 'token', 'PayerID']) {
+        returnUrl.searchParams.delete(parameter)
+      }
+      window.history.replaceState(window.history.state, '', `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`)
+    }
+
     fetch('/api/health', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error('Health check failed')
@@ -403,7 +411,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) },
         body: JSON.stringify({
-          userId: auth.authenticated ? auth.userId : 'demo-user',
+          userId: auth.authenticated ? auth.userId : 'local-user',
           naturalLanguageRequest: request.trim(),
           goal: goal.trim(),
           maxAmount: Number(maxAmount),

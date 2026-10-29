@@ -1,4 +1,4 @@
-# IntentOS Buyer Demo and Scenario Guide
+# IntentOS Buyer Scenario Guide
 
 ## The Story
 
@@ -10,7 +10,7 @@ This is not a chatbot with unrestricted spending. It is an agent shopping journe
 
 ## Before Presenting
 
-1. Deploy catalog version **2** and the buyer-first frontend. Local changes do not update the public demo until deployed. The seed catalog is [../backend/src/main/resources/merchant/catalog.json](../backend/src/main/resources/merchant/catalog.json). `INTENTOS_MERCHANT_CATALOG` can override it; confirm the deployed version through the merchant products API.
+1. Deploy catalog version **2** and the buyer-first frontend. Local changes do not update the public example until deployed. The seed catalog is [../backend/src/main/resources/merchant/catalog.json](../backend/src/main/resources/merchant/catalog.json). `INTENTOS_MERCHANT_CATALOG` can override it; confirm the deployed version through the merchant products API.
 2. Sign in with a PayPal Sandbox buyer. Confirm Bedrock extraction/shopping, PayPal credentials and webhook registration, and Elastic persistence. Agent Builder requires its own live acceptance; configuration alone does not prove its tools work.
 3. Use **United States / California / Standard** unless stated otherwise. The prices below are simulator calculations, not real retailer offers or tax advice.
 4. Start each scenario as a separate purchase request. For another attempt on the same intent, choose **New run**, then **Find my cart**. The backend accepts one initial model proposal per run.
@@ -25,7 +25,7 @@ All products and shipping are simulated. PayPal Sandbox executes a test payment 
 
 The expected outcomes below apply **when the listed items are proposed and the stated contract is confirmed**. Repeatable quote/policy scenarios use the real bundled catalog in [../backend/src/test/java/com/intentos/merchant/SeedCatalogScenarioTest.java](../backend/src/test/java/com/intentos/merchant/SeedCatalogScenarioTest.java). Shopping API tests exercise candidate selection and same-run repair with an explicitly mocked model.
 
-For a guaranteed bad-agent demonstration, show deterministic tests and identify them as tests. The UI has no manual candidate picker or seeded bad-cart mode. Do not secretly force model selection, weaken policy, or fabricate payment events to produce a recording.
+For a guaranteed bad-agent walkthrough, show deterministic tests and identify them as tests. The UI has no manual candidate picker or seeded bad-cart mode. Do not secretly force model selection, weaken policy, or fabricate payment events to produce a recording.
 
 ## The Buyer Journey
 
@@ -62,6 +62,12 @@ Say: “The selected laptop meets your recorded specifications and the full cost
 
 ## 2. Block Extras, Repair, and Recheck
 
+**Buyer request:**
+
+```text
+Buy one laptop for under $1,000 total, including tax and shipping. Buy only the laptop. Do not include a warranty, support plan, antivirus, accessories, subscriptions, or recurring payments. I have no additional hardware specification requirements.
+```
+
 Use a laptop-only intent with $1,000 maximum, allowed category `laptop`, no required attributes for this isolated repair example, and recurring payments/subscriptions disabled. If the proposed cart contains:
 
 | Candidate | Price |
@@ -91,7 +97,13 @@ Say: “These specifications and this budget cannot both be met by the selected 
 
 ## 4. Cheap Does Not Mean Compliant
 
-Use the first scenario's intent. `compact-computer:8gb-256gb` totals **$508.80**, but has only 8GB RAM. If proposed: **BLOCK / REQUIRED_ATTRIBUTE_NOT_MET**. `unconfirmed-laptop:specs-pending` totals **$681.60**, but has no RAM evidence; it also fails a required RAM check.
+**Buyer request:**
+
+```text
+Buy one laptop for software development with at least 16GB RAM under $1,000 total, including tax and shipping. Do not buy a laptop with less than 16GB RAM or unconfirmed memory specifications. No subscriptions or accessories.
+```
+
+`compact-computer:8gb-256gb` totals **$508.80**, but has only 8GB RAM. If proposed: **BLOCK / REQUIRED_ATTRIBUTE_NOT_MET**. `unconfirmed-laptop:specs-pending` totals **$681.60**, but has no RAM evidence; it also fails a required RAM check. The request does not force either bad candidate; Nova may correctly choose Portable Computer 16 instead.
 
 The unconfirmed laptop has complete price, stock, and purchase terms: its quote can be READY while the intent decision is BLOCK. “Quote complete” is not “purchase approved.” Repair must not invent specifications.
 
@@ -115,9 +127,32 @@ If two `usb-keyboard:wired` units are proposed, the merchant allows it but the b
 
 Separately, six `mechanical-keyboard:wireless` units exceed the merchant maximum of five: **HOLD / QUANTITY_LIMIT**. Policy repair cannot override seller limits or create stock.
 
+**Merchant-limit buyer request:**
+
+```text
+Buy six Wireless Mechanical Keyboards for the office under $600 total, including tax and shipping. I need all six units. No subscriptions or other products.
+```
+
+For this variant, do not set a buyer quantity limit below six. The seller's maximum of five is the intended boundary. Nova may decline the unavailable quantity rather than submit it.
+
 ## 7. Missing Evidence Means Hold
 
 Use a sufficient budget and request the listing by name. If Nova refuses it, report “no safe candidate selected.” If selected, these quote outcomes apply:
+
+Use each request below as a separate purchase. Do not combine incomplete listings into one cart: that would obscure which missing fact caused the HOLD.
+
+| HOLD example | Exact buyer request text |
+| --- | --- |
+| Tax pending | Buy one Wireless Printer with Tax Pending under $250 total, including tax and shipping. Do not substitute another product. No subscriptions or accessories. |
+| Purchase terms pending | Buy one Design Software with Purchase Terms Pending under $150 total, including tax and shipping. Only a one-time purchase is allowed. No subscriptions or recurring charges. |
+| Billing interval pending | Find one Design Subscription with Billing Interval Pending with a maximum initial charge of $100 including tax and shipping. I allow subscriptions and recurring payments, but the billing interval must be confirmed before payment. |
+| Stock pending | Buy one Portable SSD with Stock Pending under $150 total, including tax and shipping. Confirm availability before payment. No subscriptions or accessories. |
+| Sold out | Buy one Sold Out 4K Webcam under $150 total, including tax and shipping. I need this exact product. Do not substitute another camera. |
+| Insufficient stock | Buy two Limited Edition Noise Cancelling Headphones under $250 total, including tax and shipping. I need both units, not just one. No subscriptions or accessories. |
+| Price pending | Buy one Portable Projector with Price Pending under $500 total, including tax and shipping. Confirm its price before payment. No subscriptions or accessories. |
+| Unsupported destination, API/test only | Buy one Portable Computer 16 under $1,000 total, including tax and shipping, delivered to Texas in the United States using standard shipping. No subscriptions or accessories. |
+
+For the billing-interval case, confirm both subscription and recurring-payment permissions are enabled; the intended missing fact is the interval, not forbidden recurring billing. For the Texas case, the request text does not configure delivery: submit `country: US`, `region: TX`, and `shippingMethod: standard` through the quote/proposal API. Texas is intentionally unavailable in the UI dropdown.
 
 | Candidate | Missing fact / request | Evidence reason |
 | --- | --- | --- |
@@ -130,13 +165,25 @@ Use a sufficient budget and request the listing by name. If Nova refuses it, rep
 | `price-pending-projector:1080p` | Price unknown | `INVALID_PRICE` |
 | Any listing sent through API with US / TX / Standard | No destination rule | `DESTINATION_SHIPPING_RULE_UNAVAILABLE` |
 
-These quotes are **HOLD**, with no final total, tax, or shipping amount. Unknown does not mean zero. Incomplete listings are intentional demo data, not catalog-load errors. The UI only offers supported delivery choices; unsupported destinations are API/test scenarios.
+These quotes are **HOLD**, with no final total, tax, or shipping amount. Unknown does not mean zero. Incomplete listings are intentional example data, not catalog-load errors. The UI only offers supported delivery choices; unsupported destinations are API/test scenarios.
 
 Say: “The agent cannot prove the final cost or purchase terms. IntentOS pauses instead of guessing.” Never proceed to PayPal on HOLD.
 
 ## 8. Preference Is Different from a Requirement
 
+**Preference buyer request, API/test setup required:**
+
+```text
+Buy one monitor under $350 total, including tax and shipping. I prefer 4K resolution, but it is a preference rather than a hard requirement. No subscriptions or accessories.
+```
+
 For an API/test contract with category `monitor`, budget $350, and `preferredAttributes: {"resolution":"4K"}`, `desk-monitor:24inch-1080p` yields **MODIFY** with a recommendation. There is no hard budget violation, but checkout is not approved.
+
+**Hard-requirement buyer request:**
+
+```text
+Buy one monitor with 4K resolution under $350 total, including tax and shipping. 4K is required; do not buy a 1080p monitor. No subscriptions or accessories.
+```
 
 The hard-required version (`requiredAttributes`) yields BLOCK. Repair does not choose a different monitor to satisfy a preference. `studio-monitor:27inch-4k` is the complete 4K alternative, **$292.80** California Standard.
 
@@ -156,17 +203,49 @@ Complete one-time listings, with California Standard totals if the matching prod
 
 The premium chair totals **$573.60** and fails the $250 chair budget. A party speaker is a different category from the party kit; whether allowed must come from the buyer's confirmed contract, not an assumption that all party-related products are requested.
 
-The catalog also includes a wireless mouse, USB-C dock, monthly support, and monthly cloud backup. Subscription metadata demonstrates recurring-charge detection; Orders v2 checkout here is not recurring billing/subscription management. Do not present an order as establishing a real recurring plan.
+**Premium-chair budget comparison request:**
+
+```text
+Buy one ergonomic mesh desk chair under $250 total, including tax and shipping. Do not exceed the budget for a premium version. No subscriptions or accessories.
+```
+
+**Party-kit category-boundary request:**
+
+```text
+Buy one Birthday Party Kit for Twelve under $80 total, including tax and shipping. Buy only the party kit. Do not include a speaker, electronics, subscriptions, or any other products.
+```
+
+The catalog also includes a wireless mouse, USB-C dock, monthly support, and monthly cloud backup. Subscription metadata shows recurring-charge detection; Orders v2 checkout here is not recurring billing/subscription management. Do not present an order as establishing a real recurring plan.
 
 ## 10. Clarification Before Shopping
 
 **Buyer request:** “Buy me a good laptop.”
+
+**Exact follow-up request after the agent asks for details:**
+
+```text
+Buy one laptop for software development with at least 16GB RAM. My maximum is $1,000 total including tax and shipping. No subscriptions, recurring payments, or accessories.
+```
+
+Replace the original request with that complete text before checking the updated request.
+
+**Conflicting-boundaries variant:**
+
+```text
+Buy one laptop with at least 32GB RAM for no more than $500 total, including tax and shipping. Both the RAM requirement and the budget are mandatory. No subscriptions or accessories.
+```
 
 The Intent Agent should ask for missing/ambiguous boundaries. Inspect its actual questions; wording is model-dependent. No shopping run starts until sufficient detail is supplied and the buyer confirms the interpretation. Repeat with conflicting budget/specifications; do not claim identical model behavior every time.
 
 Say: “Understanding intent includes admitting what the agent does not know.”
 
 ## 11. Payment, Receipt, and Explanation
+
+**Buyer request:**
+
+```text
+Buy one Portable Computer 16 with at least 16GB RAM under $1,000 total, including tax and shipping. No subscriptions, recurring payments, warranties, or accessories.
+```
 
 Use an approved cart. Review, create the Sandbox order, follow buyer approval, return, and capture. Distinguish **policy approved**, **capture response received**, and **verified receipt ready**.
 
@@ -185,6 +264,14 @@ Queries are scoped to the currently accessible intent, not every user's purchase
 
 These are API/test/provider checks, not outcomes a catalog alone can guarantee:
 
+**Exact baseline buyer request for these safety checks:**
+
+```text
+Buy one Portable Computer 16 under $1,000 total, including tax and shipping. No subscriptions, recurring payments, warranties, or accessories.
+```
+
+Reuse the resulting intent only where the test requires it. Expiry, changed evidence, another user's session, invalid signatures, low confidence, explicit proposal flags, and repeated attempts must be established through the described test/API/provider setup; buyer wording alone cannot create those conditions. Refunds and fulfillment remain unsupported regardless of request text.
+
 | Scenario | Boundary |
 | --- | --- |
 | Expired quote or changed catalog | Fresh quote required; stale evidence cannot authorize checkout. |
@@ -198,7 +285,7 @@ These are API/test/provider checks, not outcomes a catalog alone can guarantee:
 | Repeated repair attempts | At most three persisted attempts; many cases stop earlier. |
 | Low-confidence contract | HOLD; not product-specific. |
 | Explicit add-on flag, prohibited item, restricted merchant | Deterministic rules; some fields require API/test setup. All seed products share one merchant. |
-| Refunds, disputes, real inventory reservation, fulfillment | Not implemented by this demo catalog. Do not claim them. |
+| Refunds, disputes, real inventory reservation, fulfillment | Not implemented by this example catalog. Do not claim them. |
 
 ## Sub-Three-Minute Recording
 
@@ -226,4 +313,4 @@ If delivery is delayed, resume recording once the genuine receipt arrives; never
   --tests com.intentos.paypal.PayPalWebhookControllerTest
 ```
 
-Catalog tests load the actual bundled JSON and check exact totals, HOLD reasons, policy results, and repair boundaries. API tests verify same-run quote-backed repair/review. Service tests cover expired/changed quotes. Payment/webhook tests cover authorization and evidence handling. Automated success does not prove a completed live PayPal/Agent Builder demonstration.
+Catalog tests load the actual bundled JSON and check exact totals, HOLD reasons, policy results, and repair boundaries. API tests verify same-run quote-backed repair/review. Service tests cover expired/changed quotes. Payment/webhook tests cover authorization and evidence handling. Automated success does not prove a completed live PayPal/Agent Builder walkthrough.

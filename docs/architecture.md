@@ -13,7 +13,7 @@ flowchart LR
     Bedrock[Amazon Bedrock Nova]
     Merchant[Configurable simulated merchant]
     PayPalOrders[PayPal OAuth + Orders v2]
-    PayPalSDK[PayPal JS SDK v6]
+    PayPalApproval[PayPal hosted buyer approval]
     PayPalWebhook[PayPal signed webhook]
     Elasticsearch[(Elasticsearch indices)]
     Kibana[Kibana Agent Builder]
@@ -24,8 +24,8 @@ flowchart LR
     Api -->|Search, detail, quote and quote verification| Merchant
     Api --> JavaPolicy
     JavaPolicy -->|Only APPROVE may proceed| PayPalOrders
-    Browser -->|Buyer approval UI| PayPalSDK
-    PayPalSDK -->|Approval callback, order ID| Browser
+    Browser -->|Follow order approval URL| PayPalApproval
+    PayPalApproval -->|Return to application| Browser
     Browser -->|Capture request after buyer approval| Api
     Api -->|GET order, verify approval, POST capture| PayPalOrders
     PayPalWebhook -->|Signature headers + event| Api
@@ -56,11 +56,11 @@ The model client is advisory. It may extract intent or write evidence-grounded e
 2. **Intent contract:** The user types a request. Nova extraction/clarification is reviewed before `POST /api/intents` creates the contract.
 3. **Shopping run:** The user enters country, region, and shipping method. `POST /api/intents/{id}/shopping-runs/{runId}/propose` supplies up to 50 simulator candidates to Nova Lite, validates the returned candidate IDs, creates a computed quote, validates it in Java, and persists a revision.
 4. **Repair and review:** A non-approved proposal may use deterministic repair within the same run. A repaired cart receives a new quote/revision. Only an `APPROVE` revision can be reviewed, and the review binds to its exact revision and quote.
-5. **Payment:** The backend reconstructs order facts from the persisted revision/quote, checks review and current policy, then creates a PayPal Sandbox order. PayPal SDK v6 obtains mandatory buyer approval. Immediately before capture, the backend rechecks expiry, current quote and policy; the browser never captures funds.
+5. **Payment:** The backend reconstructs order facts from the persisted revision/quote, checks review and current policy, then creates a PayPal Sandbox order. The buyer follows the PayPal hosted approval URL and returns to the application, then chooses **Check approval and capture**. The server verifies buyer approval; URL parameters are not payment evidence. Immediately before capture, the backend rechecks expiry, current quote and policy; the browser never captures funds directly.
 6. **Activity and receipt:** Only a signature-verified `PAYMENT.CAPTURE.COMPLETED` webhook finalizes an AgentReceipt. Receipt events are scoped to the captured run (legacy records remain proposal-scoped).
 7. **History and intelligence:** Authenticated users can search shopping runs across owned intents, including unpaid decisions. After intent authorization, the analyst issues a short-lived capability and Agent Builder invokes four read-only backend MCP tools for receipts, decisions, detail, and deterministic metrics. Completed calls and retrieved evidence citations accompany tool-backed answers. Without Agent Builder configuration, Bedrock narration remains explicitly labeled. Deployment requires importing/attaching the remote MCP tools; see the integration guide.
 
-Quote snapshots use local server-owned files by default. The configured quote directory must be mounted durably across container replacement before deployed quote durability can be claimed. The simulator does not reserve inventory or place a physical order.
+With Elastic enabled, quote snapshots persist in `merchant-quote-v1`. Otherwise they use local server-owned files; that directory needs a durable mount across container replacement. Other in-memory payment adapters remain non-durable when Elastic is disabled. The simulator does not reserve inventory or place a physical order.
 
 ## Shopping and Quote Sequence
 
@@ -104,7 +104,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
-    participant UI as React + PayPal SDK v6
+    participant UI as React browser
     participant API as Spring Boot
     participant Policy as Java policy
     participant PayPal as PayPal Orders v2
@@ -122,8 +122,9 @@ sequenceDiagram
     PayPal-->>API: Order ID + buyer approval URL
     API->>Elastic: Persist checkout session with run/revision IDs
     API-->>UI: Order ID + approval URL
-    UI->>PayPal: Start SDK checkout and obtain buyer approval
-    PayPal-->>UI: onApprove(orderId)
+    UI->>PayPal: Follow hosted approval URL
+    PayPal-->>UI: Return to application after buyer approval
+    User->>UI: Check approval and capture
     UI->>API: POST /orders/{orderId}/capture
     API->>API: Recheck intent expiry, review, quote and policy
     API->>PayPal: GET order and verify APPROVED and bound amount/intent/proposal
@@ -136,7 +137,7 @@ sequenceDiagram
     API->>Elastic: Deduplicate webhook and persist capture and one receipt
 ```
 
-A Sandbox capture is a payment to the configured PayPal Sandbox merchant. It does **not** place a physical order or prove retailer settlement. The UI and demo must preserve that distinction.
+A Sandbox capture is a payment to the configured PayPal Sandbox merchant. It does **not** place a physical order or prove retailer settlement. The UI and example must preserve that distinction.
 
 ## Receipt Search, Metrics, and Analyst Sequence
 
@@ -146,7 +147,7 @@ sequenceDiagram
     participant UI as React dashboard
     participant API as Spring Boot
     participant Access as IntentAccessService
-    participant Events as Event store / ES|QL
+    participant Events as Elasticsearch event store
     participant Receipts as AgentReceiptStore
     participant Analyst as Elastic Agent Builder or Bedrock
 
@@ -158,7 +159,7 @@ sequenceDiagram
         API->>Receipts: Hybrid lexical/semantic search + intent/status filters
         Receipts-->>API: Matching receipts for this intent only
     else Metrics
-        API->>Events: ES|QL retrieve proposal history for this intent
+        API->>Events: Ordered search_after retrieval for this intent
         Events-->>API: Ordered deterministic decision rows
         API->>Receipts: Read authoritative captures for this intent
         Receipts-->>API: Captured amounts and receipt evidence
@@ -205,4 +206,4 @@ When Elastic is disabled, the local in-memory adapters support development/tests
 - Import the four remote tools from the IntentOS MCP connector, then attach them in the target Kibana space using `INTENTOS_MCP_TOOL_IDS` and `node scripts/provision-elastic-agent-builder.mjs` with a short-lived management key. Raw ES|QL tools must not be attached to this user-facing agent.
 - Runtime Agent Builder chat requires `ELASTIC_KIBANA_URL`, a least-privilege `ELASTIC_AGENT_BUILDER_API_KEY` without broad Elasticsearch access, the `receipt-analyst` agent ID, and an MCP connector to `/api/analyst/mcp` with four imported tools attached. Capabilities live in one backend process for two minutes and are revoked when narration ends. Live tool/citation acceptance remains open.
 - Semantic ranking requires an Elasticsearch inference endpoint and `agent-receipt-v1.searchText` mapped as `semantic_text`. Otherwise lexical fallback remains active.
-- A clean deployed PayPal Sandbox → verified webhook → searchable receipt walkthrough and the under-three-minute demo recording remain release checks.
+- A clean deployed PayPal Sandbox → verified webhook → searchable receipt walkthrough and the under-three-minute example recording remain release checks.

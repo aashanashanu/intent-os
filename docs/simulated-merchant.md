@@ -1,6 +1,6 @@
 # Simulated Merchant Foundation
 
-Status: simulator, bounded Nova proposal, same-run repair, revision review, simulator-backed PayPal order path, capture-time revalidation, and the responsive UI journey are implemented and covered by focused tests. Quote volume durability/reservations and external live PayPal/Bedrock verification remain open. Channel3 and PayPal Catalog discovery surfaces have been removed.
+Status: simulator, bounded Nova proposal, same-run repair, revision review, simulator-backed PayPal order path, capture-time revalidation, and the responsive UI journey are implemented and covered by focused tests. Elastic-backed quote persistence is implemented; file-only deployments need a retained quote directory. Inventory reservations, distributed concurrency, and environment-specific provider acceptance remain separate operational requirements. See [infrastructure-setup.md](infrastructure-setup.md) for installation and [scenario-guide.md](scenario-guide.md) for buyer requests and tested outcomes.
 
 ## Disclosure
 
@@ -49,7 +49,7 @@ Example request using the disclosed simulator catalog:
 
 The user may supply a destination/shipping preference, but the request has no client-supplied price, tax, shipping amount, or purchase-type override. Unsupported regions/methods yield HOLD instead of free shipping. Subscription products require an explicit billing interval. Quote tax uses the configured rule on taxable line totals and shipping when configured taxable, rounding once to cents with HALF_UP. Unknown costs leave total/tax/shipping null on HOLD; `missingEvidence` contains machine-readable reasons.
 
-Changed items, quantities, variants, or destination require a new quote request and ID. An old snapshot remains evidence of its original request only. The future approved cart/review binding must enforce these input identities before any payment operation.
+Changed items, quantities, variants, or destination require a new quote request and ID. An old snapshot remains evidence of its original request only. The implemented revision/review binding checks cart identities and quote freshness before order creation and capture; changing a cart requires a fresh reviewed revision.
 
 ## Verification
 

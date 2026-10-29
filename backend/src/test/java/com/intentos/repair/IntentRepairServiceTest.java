@@ -89,7 +89,7 @@ class IntentRepairServiceTest {
     void requestsUserReviewForMalformedPriceWithoutCrashing() {
         IntentContract intent = intent(new BigDecimal("1000"), Map.of());
         Item malformed = new Item("Developer Laptop", "laptop", 1, null, false, false, false,
-                "Demo Store", Map.of());
+                "Example Store", Map.of());
         TransactionProposal proposal = new TransactionProposal("PROP-1", "INT-1", "USD", List.of(malformed),
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
 
@@ -158,7 +158,7 @@ class IntentRepairServiceTest {
 
     private static Item item(String name, String price, boolean recurring, boolean subscription, boolean addOn, int quantity) {
         return new Item(name, "laptop", quantity, new BigDecimal(price), recurring, subscription, addOn,
-                "Demo Store", Map.of());
+                "Example Store", Map.of());
     }
 
     private static OfferEvidence evidence(Item item) {

@@ -45,6 +45,8 @@ pnpm-debug.log*
 *.tfvars
 !*.tfvars.example
 *.tfvars.json
+*.tfplan
+tfplan
 .terraform.tfstate.lock.info
 crash.log
 crash.*.log

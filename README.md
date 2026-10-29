@@ -1,70 +1,74 @@
 # IntentOS
 
-IntentOS is a trust layer for agentic commerce. It turns explicit purchase constraints into an Intent Contract, validates proposals deterministically, and records an auditable decision before payment.
+**Your AI can decide. IntentOS makes sure it decides what you meant.**
 
-## Current implementation
+IntentOS turns a buyer's request into an explicit Intent Contract, checks agent-proposed purchases against deterministic policies, and joins the decisions with verified PayPal payment evidence in an AgentReceipt.
 
-- Create and retrieve Intent Contracts through the Spring Boot API.
-- Enforce budgets, categories, required attributes, recurring/subscription permissions, prohibited products, merchant restrictions, per-item quantity caps, and proposal-total consistency.
-- Persist shopping runs and immutable quote-backed revisions; Nova Lite selects only supplied simulator candidate IDs, while Java calculates totals and validates policy.
-- Repair a cart deterministically in the same run, refresh its quote, and require explicit review of the exact approved revision before PayPal order creation.
-- Optional PayPal Login using an authorization-code flow, state validation, server-side token exchange, HTTP-only session, and per-user contract access.
-- A clearly disclosed, configurable simulated merchant catalog and computed quotes. It does not reserve stock or place/fulfill a physical retailer order.
-- Optional Elasticsearch persistence for intents, runs, revisions, reviews, decision events, checkout state, webhook deduplication, and receipts. Cross-intent run history and deterministic lineage metrics are available; quote snapshots still require a durable deployment mount.
-- Configurable Amazon Bedrock Converse tasks: Nova Micro for extraction/explanation and Nova Lite for reasoning, candidate selection, and repair. Candidate IDs are validated and Java policies remain authoritative.
+## Purchase Flow
 
-The shopping flow uses the simulator only. PayPal Orders v2 remains the payment boundary; AgentReceipts are finalized only from signature-verified capture webhooks. Analyst answers may use the configured Elastic Agent Builder narrator or a visibly labeled Bedrock fallback, but attached secured Agent Builder tools are not implemented yet. The PayPal Sandbox payment goes to the configured Sandbox merchant and does not imply physical fulfillment. See [docs/prd-remediation-plan.md](docs/prd-remediation-plan.md) for remaining durability, history, analyst, and release gates.
+Request a purchase, review the Intent Agent's interpretation, and let the Shopping Agent select from a configurable simulated merchant catalog. Java calculates the full quote and enforces budget, category, specifications, quantity, merchant, and recurring-payment constraints. Safe repairs receive a fresh quote and another policy check. Only an approved, explicitly reviewed revision can reach PayPal buyer approval and server-side capture.
 
-## Requirements
+AgentReceipts finalize only from signature-verified `PAYMENT.CAPTURE.COMPLETED` webhooks. Elasticsearch stores intents, quotes, shopping history, decisions, checkout state, and receipts. Elastic Agent Builder can analyze that evidence through four owner-scoped, read-only MCP tools; Bedrock-grounded narration is a separate mode when Agent Builder is unconfigured.
 
-- Java 21
-- Node.js 18+ and npm
-- A PayPal Developer account for Sandbox integrations
-- Optional Elastic Cloud deployment and Elasticsearch API key
+**The catalog and shipping rules are simulated. PayPal Sandbox payments do not place a physical order, reserve inventory, or prove retailer fulfillment.** Semantic search and Agent Builder require provider setup and live verification; readiness flags alone do not prove successful integration.
 
-## Local setup
+## Quick Start
 
-1. Copy `.env.example` to `.env` and fill in only integrations you have configured. `.env` is git-ignored. Never paste credentials into chat or commit them.
-2. Load the environment values into the shell that will run the backend:
-
-	```sh
-	set -a
-	source .env
-	set +a
-	```
-
-3. Start the API:
-
-	```sh
-	./backend/gradlew -p backend bootRun
-	```
-
-4. In a second terminal, start the frontend:
-
-	```sh
-	npm --prefix frontend run dev -- --host 0.0.0.0
-	```
-
-5. Open <http://localhost:5173/>. Vite proxies `/api` to the backend on port 8080.
-
-The local default permits the demo user and stores contracts in memory. Local quote snapshots are written under `backend/.intentos/merchant-quotes`; preserve or mount that directory across process/container replacement. With Elasticsearch enabled, quotes are stored in `merchant-quote-v1`. Once PayPal Login is configured, set `INTENTOS_AUTH_REQUIRED=true` and restart the backend to require PayPal sessions for intent, shopping, and history routes.
-
-## Tests
+Requirements: **Java 21**, **Node.js 22.12+ compatible with Vite 8**, npm, and Git. For the complete shopping experience, configure Elastic Cloud, AWS Bedrock access, and PayPal Sandbox first using [docs/infrastructure-setup.md](docs/infrastructure-setup.md).
 
 ```sh
-./backend/gradlew -p backend test
-npm --prefix frontend run build
-npm --prefix frontend run lint
+git clone https://github.com/aashanashanu/intent-os.git
+cd intent-os
+npm ci --prefix frontend
+cp .env.example .env
 ```
 
-## Integration setup
+Edit the ignored environment file privately. For persistent, model-backed operation, set `INTENTOS_ELASTIC_ENABLED=true`, the Elasticsearch endpoint/key, `INTENTOS_LLM_ENABLED=true`, your AWS profile, and the PayPal configuration described in the setup guide. Root environment files are not automatically loaded by Spring Boot.
 
-See [docs/integrations.md](docs/integrations.md) for simulator configuration, PayPal Sandbox/Login, Elastic Cloud, and Amazon Bedrock setup. PayPal client secrets and Elastic API keys remain server-side; Bedrock uses local AWS credentials or the EC2 instance role.
+Start the backend:
 
-The Week 4 architecture and timed demo walkthrough are in [docs/architecture.md](docs/architecture.md) and [docs/demo-script.md](docs/demo-script.md). To configure Elastic Agent Builder, follow the provisioner/API-key steps in [docs/integrations.md](docs/integrations.md); provisioning uses `KIBANA_URL` and a short-lived `KIBANA_API_KEY` supplied only through the shell.
+```sh
+set -a
+source .env
+set +a
+./backend/gradlew -p backend bootRun
+```
 
-For a public PayPal Login callback without managing a domain or DNS, follow [docs/aws-deployment.md](docs/aws-deployment.md). It serves the frontend from private S3 through CloudFront and deploys the backend to EC2 through GitHub Actions and Systems Manager.
+In a second terminal:
 
-## Development plan
+```sh
+npm run dev --prefix frontend -- --host 127.0.0.1 --port 5173
+```
 
-See [PLAN.md](PLAN.md) for weekly delivery goals, integration gates, and verification steps.
+Open <http://localhost:5173/>. Vite proxies `/api` to port 8080. Verify the API with `curl --fail http://localhost:8080/api/health`.
+
+The untouched template starts an unprotected, model-disabled local API with process-local storage. It is suitable only for local development; it cannot extract/shop without Bedrock, execute payments without PayPal, or receive external callbacks on localhost. A public HTTPS origin is required for PayPal webhooks and remote MCP callbacks. Once login is configured, enable `INTENTOS_AUTH_REQUIRED=true` before exposing the app.
+
+Never commit credentials or place secrets in frontend variables. With Elastic enabled, quote snapshots persist in `merchant-quote-v1`. With Elastic disabled, payment records and most application data reset on restart; file quote snapshots alone are not durable payment evidence.
+
+## Installation and Operations
+
+- [docs/infrastructure-setup.md](docs/infrastructure-setup.md): complete local and AWS setup, Elastic indexes/keys, PayPal callbacks, Bedrock, Agent Builder/MCP, troubleshooting, and release checks.
+- [docs/aws-deployment.md](docs/aws-deployment.md): Terraform resources, GitHub OIDC deployment, cost, and infrastructure lifecycle.
+- [docs/integrations.md](docs/integrations.md): provider-specific settings and authorization boundaries.
+- [docs/scenario-guide.md](docs/scenario-guide.md): exact buyer requests, expected policy outcomes, repair limits, and payment/receipt walkthroughs.
+- [docs/architecture.md](docs/architecture.md): system context, sequences, persistence, and trust boundaries.
+- [docs/prd-remediation-plan.md](docs/prd-remediation-plan.md): remaining implementation and acceptance gates.
+
+For AWS, provision your own infrastructure and set every workflow resource variable from your Terraform outputs. Existing workflow defaults belong to an existing installation, not a portable new-account configuration. See the installation guide before deploying a fork.
+
+## Verification
+
+```sh
+./backend/gradlew -p backend test bootJar
+npm run build --prefix frontend
+npm run lint --prefix frontend
+node --test scripts/*.test.mjs
+git diff --check
+```
+
+Automated tests cover policy, quote evidence, bounded repair, authorization, checkout, webhook handling, and scoped analyst tools. Separately verify live login, model execution, Sandbox capture/webhook, restart persistence, and analyst citations. A passing test suite does not establish provider availability or high availability.
+
+## License
+
+See [LICENSE](LICENSE). Implementation status and delivery work are tracked in [PLAN.md](PLAN.md).

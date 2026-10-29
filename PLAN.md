@@ -1,8 +1,10 @@
 # IntentOS Development Plan
 
+This document preserves the original delivery plan and its historical estimates. It is not a current deployment checklist or proof of provider verification. Use [README.md](README.md) and [docs/infrastructure-setup.md](docs/infrastructure-setup.md) for installation. Source now includes Elastic quote persistence, secured MCP tools, receipt detail, buyer-first interaction, and hosted PayPal approval links; live acceptance remains a separate check.
+
 ## Goal
 
-Deliver the PRD's complete autonomous-purchase path in four weekly delivery increments: one developer, 20 hours per week, about 80 hours total. Use the PRD-recommended React, TypeScript, Tailwind, Java 21, and Spring Boot stack, and deliver a public demo.
+Deliver the PRD's complete autonomous-purchase path in four weekly delivery increments: one developer, 20 hours per week, about 80 hours total. Use the PRD-recommended React, TypeScript, Tailwind, Java 21, and Spring Boot stack, and deliver a public example.
 
 Use a clearly labeled simulated merchant as the sole shopping catalog and quote source. Nova Lite through Bedrock will power the autonomous Shopping Agent; Spring Boot will execute its bounded tools and enforce policy. PayPal Sandbox approval/capture and verified webhooks remain actual provider integrations, and Elastic remains the audit/intelligence layer. Channel3 is removed from the target architecture, not kept as an optional parallel journey. Keep keys server-side and combined hosted-service/model spend within $25. Simulated catalog data is allowed; scripted agent choices, invented model prices, fabricated PayPal events, and predetermined success are not.
 
@@ -43,7 +45,7 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 
 - Implement server-side PayPal OAuth and Orders v2 operations.
 - Recheck simulator inventory, terms, and quote validity before order creation. Require deterministic approval and review of the exact revision. Missing simulator facts mean HOLD; user-entered amounts cannot replace merchant quotes. Recheck intent expiry and payment eligibility before capture.
-- Render PayPal JavaScript SDK v6 checkout, require buyer approval, then capture server-side.
+- Require PayPal hosted buyer approval, then verify and capture server-side. The current frontend follows an approval link rather than mounting SDK checkout buttons.
 - Verify webhook signatures, handle duplicate events idempotently, and persist authoritative order, capture, and webhook evidence.
 - Create AgentReceipt with intent/contract, proposal history, violations, repairs, final decision, amount, PayPal IDs/status, and a timestamped activity timeline.
 - Index intents, decisions, transactions, events, and receipts into Elasticsearch.
@@ -51,7 +53,7 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 
 **Exit gate:** One Nova-generated merchant cart lineage reaches repair when needed, final review, PayPal Sandbox buyer approval/capture, and exactly one verified-webhook receipt. Invalid, incomplete, expired, or unreviewed revisions cannot pay. Simulation and actual PayPal evidence remain distinguishable.
 
-### Week 4: Elastic Intelligence, Public Demo, and Submission (20 hours) — IN PROGRESS
+### Week 4: Elastic Intelligence, Public Example, and Submission (20 hours) — IN PROGRESS
 
 - [ ] Complete user-history search, date filters, relevance-ranking evidence, and uncapped pagination under remediation R5; current run history flags some caps but does not guarantee completeness.
 - [ ] Finish metrics complete-data handling, captured-run reconciliation, and Elastic/UI parity under R4-R5; logical run grouping and corrected definitions are implemented, Elastic cap handling remains open.
@@ -60,10 +62,10 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 - [x] Remove active Channel3/PayPal Catalog discovery services, UI, deployment settings, and MCP launcher; preserve legacy evidence and PayPal OAuth/payment code.
 - [ ] Finish R8 documentation/reference scans, deployment migration, and release acceptance.
 - [ ] Run the complete acceptance scenario from a clean deployed setup after remediation.
-- [ ] Verify the deployed failure states, budget usage, and server-side secret handling; record the functional demo using [docs/demo-script.md](docs/demo-script.md) in under three minutes.
+- [ ] Verify the deployed failure states, budget usage, and server-side secret handling; record the functional example using [docs/scenario-guide.md](docs/scenario-guide.md) in under three minutes.
 - [x] Complete README setup steps and architecture/integration documentation; retain the existing license.
 
-**Exit gate:** The public deployment supports the verified PayPal Sandbox flow, searchable AgentReceipts, accurate deterministic metrics, and an evidence-grounded Receipt Analyst. Clean-install instructions, architecture diagram, open-source license, and an under-three-minute working demo are complete.
+**Exit gate:** The public deployment supports the verified PayPal Sandbox flow, searchable AgentReceipts, accurate deterministic metrics, and an evidence-grounded Receipt Analyst. Clean-install instructions, architecture diagram, open-source license, and an under-three-minute working example are complete.
 
 ## Verification Plan
 
@@ -71,7 +73,7 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 2. **Week 2 automated tests:** Cover contract parsing/clarification, policy rules and evidence, all four decisions, the three-attempt repair ceiling, and the guarantee that payment operations cannot be reached before APPROVE.
 3. **Week 3 integration tests:** Verify only approved orders are created, buyer approval precedes capture, invalid webhook signatures are rejected, duplicate webhook delivery is idempotent, and one AgentReceipt is generated from authoritative PayPal events.
 4. **Week 4 end-to-end test:** Use the PRD laptop scenario to block budget/add-on/recurring violations, repair and revalidate, complete buyer-approved Sandbox capture, persist the receipt from the webhook, search lexically and semantically when configured, verify deterministic ES|QL-backed metrics, and get a grounded Receipt Analyst answer citing retrieved receipt IDs.
-5. **Clean-install/public-demo check:** Follow the README on a clean environment; verify the public URL, license, secret handling, full-scenario logs, and video runtime under three minutes.
+5. **Clean-install/public-example check:** Follow the README on a clean environment; verify the public URL, license, secret handling, full-scenario logs, and video runtime under three minutes.
 
 ## Decisions and Scope
 
@@ -81,7 +83,7 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 
 - One developer, four weeks, 20 hours per week. These are weekly delivery increments; formal Scrum sprint length was not separately specified.
 - Use the PRD-recommended React + TypeScript + Tailwind and Java 21 + Spring Boot stack.
-- Public hosted demo required. Hosted third-party services and account signup are allowed, with a total hosted-service and LLM/API budget of at most $25. Elastic Cloud is acceptable only within that cap.
+- Public hosted example required. Hosted third-party services and account signup are allowed, with a total hosted-service and LLM/API budget of at most $25. Elastic Cloud is acceptable only within that cap.
 - Channel3 and PayPal Catalog are not required product sources in the revised architecture. Remove unused integrations rather than maintaining an unexplained alternate journey. Retain PayPal Orders/Checkout, OAuth, Login where used, and verified webhooks.
 - Use Nova Micro for extraction/explanations and Nova Lite for shopping candidate generation, reasoning, and repair through configurable task IDs. These roles may share model/client infrastructure; they do not require independent agent platforms. Elastic Agent Builder is the separate historical Receipt Analyst.
 - All PRD MUST HAVE items and acceptance criteria are release gates.
@@ -97,7 +99,7 @@ Remediation progress: source now includes simulator quotes, candidate-ID-checked
 
 ## Repository Touchpoints
 
-- `README.md`: Add setup, environment variables, local run/deploy, and demo instructions.
+- `README.md`: Add setup, environment variables, local run/deploy, and example instructions.
 - `PayPal IntentVault + AgentReceipt — Product Requirements Document.md`: Source for contract fields, policy behavior, acceptance criteria, and Definition of Done.
 - `LICENSE`: Retain and verify for the public submission.
 - Planned application structure: `frontend/`, `backend/`, `elastic/`, and `docs/`, following the PRD's proposed modular-monolith layout.

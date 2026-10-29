@@ -16,7 +16,7 @@ This document separates implemented model tasks from the revised target architec
 - **Merchant simulator:** Configurable test inventory, product terms, availability, and deterministic cart quotes. It does not select products, force violations, or approve payments.
 - **Java policy engine:** Authoritative APPROVE/MODIFY/HOLD/BLOCK decisions and total calculation. Models cannot override it.
 - **PayPal payment orchestration:** OAuth, buyer approval, server capture, and webhook verification. Actual PayPal Sandbox evidence, never simulator-generated financial events.
-- **Elasticsearch:** Evidence persistence, search/inference, and ES|QL retrieval. Java computes financial metrics.
+- **Elasticsearch:** Evidence persistence, lexical/semantic search when configured, and ordered event retrieval. Current metrics use `_search` with `search_after`, not ES|QL; Java computes financial metrics.
 
 ## Target Shopping Loop
 
@@ -33,4 +33,4 @@ Nova is the reasoning model within the Shopping Agent, not the merchant, price a
 
 ## Simulation Disclosure
 
-Runtime merchant data is intentionally simulated and configurable. Label it on UI, stored evidence, receipts, and demonstrations: "Simulated merchant catalog and quotes. Real PayPal Sandbox payment lifecycle. No physical order or retailer settlement." Changing the dataset must change the available choices; neither success nor a particular bad cart may be scripted. Channel3 and PayPal Catalog discovery code have been removed from the active product path; historical records retain original source labels.
+Runtime merchant data is intentionally simulated and configurable. Label it on UI, stored evidence, receipts, and walkthroughs: "Simulated merchant catalog and quotes. Real PayPal Sandbox payment lifecycle. No physical order or retailer settlement." Changing the dataset must change the available choices; neither success nor a particular bad cart may be scripted. Channel3 and PayPal Catalog discovery code have been removed from the active product path; historical records retain original source labels.

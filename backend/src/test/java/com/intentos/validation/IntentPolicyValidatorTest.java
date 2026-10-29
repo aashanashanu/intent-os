@@ -98,7 +98,7 @@ class IntentPolicyValidatorTest {
     void blocksQuantityAbovePerItemLimit() {
         IntentContract intent = intent(new BigDecimal("1000"), new BigDecimal("0.94"), Map.of(), Map.of(), Map.of("Developer Laptop", 1));
         Item item = new Item("Developer Laptop", "laptop", 2, new BigDecimal("400"), false, false, false,
-                "Demo Store", Map.of());
+                "Example Store", Map.of());
 
         ValidationResult result = validator.validate(intent, proposal(item));
 
@@ -126,7 +126,7 @@ class IntentPolicyValidatorTest {
     }
 
     private static Item item(String name, String price, boolean recurring, boolean subscription, boolean addOn, Map<String, String> attributes) {
-        return new Item(name, "laptop", 1, new BigDecimal(price), recurring, subscription, addOn, "Demo Store", attributes);
+        return new Item(name, "laptop", 1, new BigDecimal(price), recurring, subscription, addOn, "Example Store", attributes);
     }
 
     private static boolean hasViolation(ValidationResult result, String type) {

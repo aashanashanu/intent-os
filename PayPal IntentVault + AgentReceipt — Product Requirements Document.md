@@ -1,5 +1,7 @@
 # Product Requirements Document
 
+This document describes product requirements and target capabilities, not a claim that every optional integration is implemented or verified. Current implementation and installation details are in [README.md](README.md), [docs/architecture.md](docs/architecture.md), and [docs/infrastructure-setup.md](docs/infrastructure-setup.md). The browser currently uses PayPal hosted approval links; ES|QL and Workflows remain target capabilities rather than the current deterministic metrics path.
+
 ## Product Name
 
 **IntentVault + AgentReceipt**
@@ -169,8 +171,8 @@ AgentReceipt
 6. Create an explainable AgentReceipt for every autonomous purchase.
 7. Store and search transaction/decision history using Elastic.
 8. Provide natural-language queries over historical agent decisions.
-9. Demonstrate real-time PayPal payment lifecycle events.
-10. Provide a compelling end-to-end hackathon demonstration.
+9. show real-time PayPal payment lifecycle events.
+10. Provide a compelling end-to-end release walkthrough.
 
 ---
 
@@ -188,7 +190,7 @@ The MVP will NOT attempt to:
 - support production-grade multi-merchant settlement
 - support every possible payment method
 
-The hackathon MVP will operate primarily in the **PayPal Sandbox**.
+The release MVP will operate primarily in the **PayPal Sandbox**.
 
 ---
 
@@ -678,7 +680,7 @@ The order should include:
 - currency
 - custom identifiers where appropriate
 
-Create the order only from a persisted approved/reviewed revision and its current server-stored simulator quote. Preserve simulation provenance and the exact run/revision/quote IDs. Recheck intent expiry, review, amount, currency, policy and quote freshness before capture. The Sandbox checkout demonstrates buyer approval, capture, and PayPal lifecycle evidence; it is not physical retailer settlement.
+Create the order only from a persisted approved/reviewed revision and its current server-stored simulator quote. Preserve simulation provenance and the exact run/revision/quote IDs. Recheck intent expiry, review, amount, currency, policy and quote freshness before capture. The Sandbox checkout shows buyer approval, capture, and PayPal lifecycle evidence; it is not physical retailer settlement.
 
 PayPal's Orders v2 API supports creating, retrieving, authorizing and capturing orders.
 
@@ -736,13 +738,13 @@ Buyer Approval
 PayPal Capture
 ```
 
-This demonstrates that IntentOS controls the **decision boundary immediately before payment**.
+This shows that IntentOS controls the **decision boundary immediately before payment**.
 
 ---
 
 # 22. PayPal JavaScript SDK
 
-Use PayPal JavaScript SDK v6 for the demo checkout UI.
+Use PayPal JavaScript SDK v6 for the example checkout UI.
 
 The current SDK supports PayPal, Pay Later, Venmo in the US, Google Pay, Apple Pay, Fastlane, and cards.
 
@@ -756,7 +758,7 @@ Sandbox buyer
 
 is sufficient.
 
-Do not spend hackathon time implementing every funding source.
+Do not spend release time implementing every funding source.
 
 The checkout UI must distinguish the simulated merchant facts from the PayPal Sandbox merchant receiving the test payment. A successful Sandbox capture proves only the configured Sandbox transaction and must not be presented as physical fulfillment.
 
@@ -918,7 +920,7 @@ PayPal capture completed
 AgentReceipt generated
 ```
 
-This timeline is one of the strongest parts of the demo.
+This timeline is one of the strongest parts of the example.
 
 ---
 
@@ -944,7 +946,7 @@ Elastic should be the **AgentReceipt intelligence and audit layer**.
 
 Do not use Elastic merely as a database.
 
-The hackathon specifically encourages using Elasticsearch together with Agent Builder, Workflows, ES|QL, Search, Security and MCP/A2A.
+Evaluate Elasticsearch together with Agent Builder, Workflows, ES|QL, Search, Security and MCP/A2A where they address a verified product need. Distinguish implemented integrations from future architecture.
 
 ---
 
@@ -1344,7 +1346,7 @@ Best for:
 
 Best for:
 
-- demonstrating MCP-based agentic commerce
+- showing MCP-based agentic commerce
 - showing AI-to-PayPal tool interaction
 
 ### Recommended
@@ -1467,7 +1469,7 @@ receipt-service
 event-service
 ```
 
-For a hackathon, these can remain modules within a single Spring Boot application rather than separate deployable microservices.
+For a release, these can remain modules within a single Spring Boot application rather than separate deployable microservices.
 
 ---
 
@@ -1656,7 +1658,7 @@ IntentOS
 🟢 Purchase approved
 ```
 
-This should be the primary demo screen.
+This should be the primary example screen.
 
 ---
 
@@ -1924,7 +1926,7 @@ The MVP should include ONLY these core capabilities:
 17. Elastic Agent Builder
 18. Natural-language receipt search
 19. Live activity timeline
-20. End-to-end demo
+20. End-to-end example
 
 ---
 
@@ -2185,7 +2187,7 @@ Elastic supports semantic/vector search, ES|QL search, Agent Builder, Workflows,
 | Refund API | Optional | Future refund flow |
 | Transaction Search | Optional | Reconciliation/history |
 | PayPal Agent Toolkit | Recommended | Agent integration |
-| PayPal MCP | Recommended | Agentic-commerce demonstration |
+| PayPal MCP | Recommended | Agentic-commerce walkthrough |
 | Subscriptions | Stretch | Detect/manage recurring payments |
 | Shipment | Stretch | Fulfillment evidence |
 | Disputes | Stretch | Post-purchase lifecycle |
@@ -2212,7 +2214,7 @@ PayPal's current Agent Toolkit exposes many of these capabilities directly to ag
 
 ---
 
-# 68. Hackathon Judging Alignment
+# 68. Product Quality Criteria
 
 ## Technological Implementation
 
@@ -2349,7 +2351,7 @@ This satisfies the spirit of agentic commerce much better than a chatbot wrapped
 
 ---
 
-# 71. Demo Scenario
+# 71. Example Scenario
 
 Use one extremely clear scenario.
 
@@ -2418,7 +2420,7 @@ Agent Builder answers:
 
 ---
 
-# 72. Demo Scenario #2 — Bad Agent
+# 72. Example Scenario #2 — Bad Agent
 
 For the video, I strongly recommend showing a deliberately flawed Shopping Agent.
 
@@ -2513,13 +2515,13 @@ The audience immediately understands why the product exists.
 
 ## Sprint 6
 
-### Demo polish
+### Example polish
 
 - live activity
 - animations
 - violation visualization
 - dashboard
-- demo script
+- example script
 - README
 - architecture diagram
 - video
@@ -2559,7 +2561,7 @@ intent-os/
 │   ├── architecture.md
 │   ├── paypal-integration.md
 │   ├── elastic-integration.md
-│   └── demo-script.md
+│   └── scenario-guide.md
 │
 ├── docker-compose.yml
 ├── README.md
@@ -2683,15 +2685,15 @@ The project is ready for submission when:
 - [ ] Semantic search works.
 - [ ] ES|QL analytics work.
 - [ ] Elastic Agent Builder can answer receipt questions.
-- [ ] Demo works from clean installation.
+- [ ] Example works from clean installation.
 - [ ] Public GitHub repository exists.
 - [ ] Open-source license is included.
 - [ ] README contains complete setup instructions.
 - [ ] Architecture diagram exists.
-- [ ] Demo video is under 3 minutes.
-- [ ] Video demonstrates actual functionality.
+- [ ] Example video is under 3 minutes.
+- [ ] Video shows actual functionality.
 
-The public repository, functional demo, open-source license, and sub-three-minute demo are explicit hackathon submission requirements.
+Release materials should include the public repository, a functional hosted application, the open-source license, and a concise walkthrough showing actual behavior.
 
 ---
 
@@ -2750,4 +2752,4 @@ Mobile app
 Dozens of PayPal payment methods
 ```
 
-The hackathon rewards a **working, non-trivial, coherent product**, so depth of one end-to-end scenario is more valuable than a large collection of partially implemented features.
+A **working, non-trivial, coherent product** needs depth in the end-to-end purchase path before adding a large collection of partially implemented features.
