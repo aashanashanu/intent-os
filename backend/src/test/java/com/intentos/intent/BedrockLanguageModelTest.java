@@ -29,6 +29,25 @@ class BedrockLanguageModelTest {
             "amazon.nova-lite-v1:0", "amazon.nova-lite-v1:0", "amazon.nova-micro-v1:0", 700);
 
     @Test
+    void extractionInstructionsSeparateCategoriesQuantitiesAndOptionalPreferences() {
+        when(client.converse(any(ConverseRequest.class)))
+                .thenReturn(response("""
+                        {"goal":"Three notebook packs","maxAmount":80,"currency":"USD","allowedCategories":["stationery"],"requiredAttributes":{},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":1,"clarificationQuestions":[]}
+                        """))
+                .thenReturn(response("{\"clarificationQuestions\":[],\"conflicts\":[]}"));
+
+        var result = model.extract("Buy three notebook packs under $80.");
+
+        assertEquals(java.util.Set.of("stationery"), result.allowedCategories());
+        assertTrue(result.requiredAttributes().isEmpty());
+        verify(client).converse(org.mockito.ArgumentMatchers.argThat((ConverseRequest request) ->
+                request.modelId().equals("amazon.nova-micro-v1:0")
+                    && request.system().getFirst().text().contains("not product names")
+                    && request.system().getFirst().text().contains("Never put quantity")
+                    && request.system().getFirst().text().contains("must not become a required attribute")));
+    }
+
+    @Test
     void extractionUsesConfiguredMicroModelAndAddsRequiredClarification() {
         when(client.converse(any(ConverseRequest.class)))
                 .thenReturn(response("""
@@ -47,6 +66,32 @@ class BedrockLanguageModelTest {
                 request.modelId().equals("amazon.nova-micro-v1:0")));
         verify(client).converse(org.mockito.ArgumentMatchers.argThat((ConverseRequest request) ->
                 request.modelId().equals("amazon.nova-lite-v1:0")));
+    }
+
+    @Test
+    void missingBudgetAndCurrencyProduceClarificationInsteadOfGatewayError() {
+        when(client.converse(any(ConverseRequest.class)))
+                .thenReturn(response("""
+                        {"goal":"laptop","maxAmount":null,"currency":null,"allowedCategories":["laptop"],"requiredAttributes":{},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":0.8,"clarificationQuestions":["What is your budget?"]}
+                        """))
+                .thenReturn(response("{\"clarificationQuestions\":[],\"conflicts\":[]}"));
+
+        var result = model.extract("Buy me a good laptop.");
+
+        assertTrue(result.needsClarification());
+        assertEquals(null, result.maxAmount());
+        assertEquals("USD", result.currency());
+    }
+
+    @Test
+    void specifiedBudgetWithoutCurrencyStillFailsClosed() {
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response("""
+                {"goal":"laptop","maxAmount":1000,"currency":null,"allowedCategories":["laptop"],"requiredAttributes":{},"allowRecurringPayments":false,"allowSubscriptions":false,"allowUnrequestedAddons":false,"confidence":1,"clarificationQuestions":[]}
+                """));
+
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(ResponseStatusException.class,
+                () -> model.extract("Laptop under 1000"));
+        assertEquals(502, failure.getStatusCode().value());
     }
 
     @Test

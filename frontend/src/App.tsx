@@ -175,6 +175,7 @@ type PolicyCheck = {
 type DecisionEvent = {
   eventId: string
   proposalId: string
+  runId?: string | null
   revisionId?: string | null
   occurredAt: string
   eventType: string
@@ -422,7 +423,7 @@ function App() {
           maximumQuantities: limitedItemName.trim() && itemQuantityLimit
             ? { [limitedItemName.trim()]: Number(itemQuantityLimit) }
             : {},
-          allowedCategories: draftCategories,
+          allowedCategories: draftCategories.map(category => category.trim()).filter(Boolean),
           requiredAttributes: draftRequiredAttributes,
           preferredAttributes: {},
           prohibitedItems: [],
@@ -628,7 +629,9 @@ function App() {
       setShoppingProposal(result)
       setNotice(result.validation?.decision === 'APPROVE'
         ? 'Your cart is ready. IntentOS checked it against your boundaries; review the items before any payment.'
-        : 'IntentOS paused this cart before payment. Review the findings below and request a safe repair.')
+        : !result.revision ? result.outcome
+          : result.quote?.status === 'HOLD' ? 'The merchant cannot confirm this purchase. Review the missing evidence below; payment remains paused.'
+            : 'IntentOS paused this cart before payment. Review the findings below and request a safe repair.')
       setNoticeKind('success')
       await refreshIntentActivity(intent.intentId)
       void loadShoppingHistory().catch(() => undefined)
@@ -852,7 +855,9 @@ function App() {
     }
   }
 
-  const latestEvent = activityEvents.at(-1) ?? null
+  const latestEvent = (shoppingRun
+    ? activityEvents.filter(event => event.runId === shoppingRun.runId)
+    : activityEvents).at(-1) ?? null
   const latestRunReceipt = verifiedReceipts.find((receipt) => receipt.intentId === activeIntent?.intentId
     && (!shoppingRun || !receipt.runId || receipt.runId === shoppingRun.runId)) ?? null
   const latestDecision = shoppingProposal?.validation?.decision
@@ -1047,8 +1052,8 @@ function App() {
                     <label><input type="checkbox" checked={allowSubscriptions} onChange={(event) => setAllowSubscriptions(event.target.checked)} /><span>Subscriptions</span></label>
                     <label><input type="checkbox" checked={allowUnrequestedAddons} onChange={(event) => setAllowUnrequestedAddons(event.target.checked)} /><span>Unrequested add-ons</span></label>
                   </fieldset>
-                  {Object.keys(draftRequiredAttributes).length > 0 && <dl className="understood-attributes">{Object.entries(draftRequiredAttributes).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>}
-                  {draftCategories.length > 0 && <p className="category-summary">Shopping for: {draftCategories.join(', ')}</p>}
+                  <label className="form-field category-summary"><span>Allowed product categories (comma separated)</span><input value={draftCategories.join(',')} onChange={(event) => setDraftCategories(event.target.value.split(','))} /></label>
+                  {Object.keys(draftRequiredAttributes).length > 0 && <div className="intent-specifications"><strong>Required product specifications</strong>{Object.entries(draftRequiredAttributes).map(([name, value]) => <div className="quantity-fields" key={name}><label className="form-field"><span>{name}</span><input value={value} onChange={(event) => setDraftRequiredAttributes(current => ({ ...current, [name]: event.target.value }))} required /></label><button className="secondary-button" type="button" aria-label={`Remove requirement ${name}`} title={`Remove requirement ${name}`} onClick={() => setDraftRequiredAttributes(current => Object.fromEntries(Object.entries(current).filter(([key]) => key !== name)))}><X size={15} />Remove requirement</button></div>)}</div>}
                   </div>}
                   <div className="composer-footer">
                     <span className="composer-hint"><LockKeyhole size={13} />No payment without your approval</span>
@@ -1080,8 +1085,8 @@ function App() {
                   </div>
                 </>}
                 {shoppingProposal && <div className={`shopping-result ${shoppingProposal.validation?.decision === 'APPROVE' ? 'approved' : shoppingProposal.validation?.decision === 'BLOCK' ? 'blocked' : 'review'}`}>
-                  <div className="repair-result-heading"><strong>{latestDecision === 'APPROVE' ? 'This cart matches your intent' : latestDecision === 'BLOCK' ? 'IntentOS stopped this purchase' : latestDecision === 'MODIFY' ? 'This cart needs a change' : 'Let\u0027s resolve this before payment'}</strong><span>Revision {shoppingProposal.revision?.revisionNumber ?? 1}</span></div>
-                  <p className="decision-explanation">{latestDecisionReason}</p>
+                  <div className="repair-result-heading"><strong>{!shoppingProposal.revision ? 'No matching cart was selected' : shoppingProposal.quote?.status === 'HOLD' ? 'The merchant cannot confirm this purchase' : latestDecision === 'APPROVE' ? 'This cart matches your intent' : latestDecision === 'BLOCK' ? 'IntentOS stopped this purchase' : latestDecision === 'MODIFY' ? 'This cart needs a change' : 'Let\u0027s resolve this before payment'}</strong>{shoppingProposal.revision && <span>Revision {shoppingProposal.revision.revisionNumber}</span>}</div>
+                  <p className="decision-explanation">{!shoppingProposal.revision ? shoppingProposal.outcome : shoppingProposal.quote?.status === 'HOLD' ? 'Price, availability, purchase terms, or delivery evidence is incomplete. This is not a payment approval; repair cannot invent missing merchant facts.' : latestDecisionReason}</p>
                   {latestViolations.length > 0 && <div className="buyer-findings">{latestViolations.map((violation, index) => <article key={`${violation.type}-${index}`}><ShieldCheck size={17} /><div><strong>{formatEventTitle(violation.type)}</strong><p>{explainViolation(violation)}</p><small>Your boundary: {violation.expected || 'Recorded intent policy'}{violation.actual ? ` · Proposed: ${violation.actual}` : ''}</small></div></article>)}</div>}
                   {repairComparison && <div className="repair-comparison"><div><RefreshCw size={16} /><strong>What changed in the repair</strong></div><p>{formatMoney(repairComparison.before.total)} before → {formatMoney(repairComparison.after.total)} after</p>{repairComparison.before.items.filter(item => !repairComparison.after.items.some(next => next.name === item.name)).map(item => <p key={item.name}>Removed {item.name} from the proposed cart.</p>)}<p>{latestDecision === 'APPROVE' ? 'The new cart passed your intent checks. No payment has been made.' : 'The revised cart still needs attention. Payment remains paused.'}</p></div>}
                   <details className="technical-evidence"><summary>Agent result and recorded IDs</summary><p>{shoppingProposal.outcome}</p><small>{shoppingProposal.revision?.revisionId ?? shoppingProposal.run.runId}</small></details>

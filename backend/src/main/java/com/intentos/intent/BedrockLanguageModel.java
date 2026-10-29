@@ -38,7 +38,25 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             Ask clarificationQuestions only when the purchase goal or budget cannot be determined, or when the request is contradictory.
             Treat recurring payments, subscriptions, and add-ons as disallowed unless explicitly allowed.
             requiredAttributes contains only explicit minimum requirements, such as RAM.
+            Never put quantity, product count, budget, shipping, tax, availability, or billing conditions in requiredAttributes.
+            Quantities are cart selection instructions, not product specifications. Keep them in the original request.
+            Product names are not specifications: "Five Pack Office Notebooks" and "Birthday Party Kit for Twelve"
+            are names. Do not invent attributes such as "for", "quantity", "pack", or "name" from them.
+            Example: "Buy three Five Pack Office Notebooks under $80" has allowedCategories ["stationery"]
+            and requiredAttributes {}. "Buy a Birthday Party Kit for Twelve under $80" has allowedCategories
+            ["party"] and requiredAttributes {}. A name match remains a shopping selection instruction.
+            A preference explicitly described as optional must not become a required attribute. This draft schema does not
+            support preferredAttributes; leave that preference in the original request, without upgrading it to a requirement.
+            allowedCategories must contain product category nouns, not product names, brands, use cases, or specifications.
+            Use singular lowercase categories: laptop, support, tablet, monitor, keyboard, mouse, accessory, warranty,
+            software, furniture, stationery, party, audio, camera, printer, storage, projector when applicable.
+            For example Wireless Printer is printer, desk chairs are furniture, notebooks are stationery,
+            tablets are tablet (not electronics), headphones are audio, webcams are camera,
+            birthday party kits are party (not party supplies), and cloud backup or design subscriptions are software.
+            If no listed category matches, use a concise singular lowercase category; do not broaden permissions.
             confidence is a number from 0 to 1 describing completeness and lack of ambiguity.
+            This application drafts USD purchases only. Use currency "USD" when no currency was specified;
+            never convert an explicitly requested foreign currency. A missing budget must remain maxAmount null.
             Do not approve a purchase, calculate transaction totals, call tools, or initiate payments.
             JSON fields: goal (string or null), maxAmount (number or null), currency (string), allowedCategories (array of strings),
             requiredAttributes (object mapping strings to strings), allowRecurringPayments (boolean), allowSubscriptions (boolean),
@@ -209,8 +227,10 @@ public class BedrockLanguageModel implements IntentLanguageModel {
             if (!amountNode.isNull() && !amountNode.isNumber()) throw new IllegalArgumentException("maxAmount must be a number or null");
             BigDecimal maxAmount = amountNode.isNumber() ? amountNode.decimalValue() : null;
             JsonNode currencyNode = required(root, "currency");
-            if (!currencyNode.isTextual()) throw new IllegalArgumentException("currency must be a string");
-            String currency = currencyNode.asText().toUpperCase();
+            if (!currencyNode.isTextual() && !(currencyNode.isNull() && maxAmount == null)) {
+                throw new IllegalArgumentException("currency must be a string for a complete budget");
+            }
+            String currency = currencyNode.isNull() ? "USD" : currencyNode.asText().toUpperCase(java.util.Locale.ROOT);
             if (!"USD".equals(currency)) throw new IllegalArgumentException("Only USD contracts are currently supported");
             JsonNode categoriesNode = required(root, "allowedCategories");
             if (!categoriesNode.isArray()) throw new IllegalArgumentException("allowedCategories must be an array");

@@ -1,5 +1,36 @@
 # IntentOS Buyer Scenario Guide
 
+## Choose the Right Kind of Scenario
+
+This guide contains both buyer journeys and controlled policy tests. They are **not all instructions that force a particular live model outcome**. The first deployed verification found real extraction defects; see [scenario-validation.md](scenario-validation.md) for measured results and the fixes. Do not treat every unexpected BLOCK as proof that the requested purchase was unsafe: first inspect the buyer-confirmed contract.
+
+| Goal | Use | Expected live behavior |
+| --- | --- | --- |
+| Complete an ordinary purchase | 1, 9, 11 | A matching cart passes after the extracted boundaries are reviewed. |
+| Show expensive or infeasible requirements | 3, 5, conflicting variant of 10 | BLOCK for an evaluated violating cart, or no selection if the agent declines it. |
+| Show missing merchant evidence | 7, merchant-limit variant of 6 | HOLD if selected, or no selection; neither permits payment. |
+| Guarantee extras removal or quantity repair | Controlled cases in 2 and 6 | Run the automated tests; live requests explicitly forbid these mistakes and often produce clean carts. |
+| Guarantee bad specifications or MODIFY | Controlled cases in 4 and 8 | Run the automated tests with the stated contracts/candidates. A live agent may select the correct product. |
+
+### Review the Extracted Boundaries
+
+Before confirmation, inspect **Allowed product categories** and **Required product specifications**, not only goal and budget. The review screen allows category edits and removal/correction of incorrectly inferred specifications. Do not remove a genuine buyer requirement merely to get approval.
+
+Use the actual seed categories: `laptop`, `support`, `tablet`, `monitor`, `keyboard`, `mouse`, `accessory`, `warranty`, `software`, `furniture`, `stationery`, `party`, `audio`, `camera`, `printer`, `storage`, `projector`. Product names, `electronics`, `notebooks`, and `party supplies` are not equivalent policy identifiers. An empty category list means no category restriction; do not clear it as a shortcut.
+
+| Request | Category | Genuine required specifications |
+| --- | --- | --- |
+| 16GB laptop | `laptop` | `ram: 16GB` (case-insensitive key) |
+| 32GB laptop | `laptop` | `ram: 32GB` |
+| Tablet with 8GB RAM | `tablet` | `ram: 8GB` |
+| Keyboard | `keyboard` | Only specifications explicitly requested and represented by catalog attributes |
+| Ergonomic chair | `furniture` | Explicit requested attributes if correctly extracted, such as `material: mesh` |
+| Three Five Pack Office Notebooks | `stationery` | No `quantity` attribute; quantity belongs to cart selection and the explicit quantity-cap fields |
+| Birthday Party Kit for Twelve | `party` | No `for: Twelve` attribute; the full phrase is the product name |
+| Optional 4K monitor | `monitor` | No hard `resolution` requirement unless the buyer actually requires it |
+
+The model remains advisory and variable. Revised extraction instructions reduce these errors; buyer confirmation and deterministic policy checks remain necessary. Free-text quantity requests inform selection, but an enforceable maximum must be entered in **Limit applies to item / Maximum quantity** using the exact product name. Preferred attributes and some other contract fields still require API setup.
+
 ## The Story
 
 **Your AI can decide. IntentOS makes sure it decides what you meant.**
@@ -62,6 +93,8 @@ Say: “The selected laptop meets your recorded specifications and the full cost
 
 ## 2. Block Extras, Repair, and Recheck
 
+**Controlled repair case, not a guaranteed live bad-cart request.** During deployed verification the request below selected only the laptop and correctly APPROVED. Use that result to show prevention through compliant selection; use the named automated test for reproducible extras removal. There is no live UI button to inject forbidden extras into the model's cart.
+
 **Buyer request:**
 
 ```text
@@ -97,6 +130,8 @@ Say: “These specifications and this budget cannot both be met by the selected 
 
 ## 4. Cheap Does Not Mean Compliant
 
+**Controlled specification-violation case.** During deployed verification the live request selected Portable Computer 16 and APPROVED. The lower-spec and unknown-spec candidates below are deliberate test inputs, not the promised model selection.
+
 **Buyer request:**
 
 ```text
@@ -120,6 +155,8 @@ The unconfirmed laptop has complete price, stock, and purchase terms: its quote 
 Say: “The product price fits, but the complete purchase does not. IntentOS checks the full quote.” For a delivery change, create a **New run** and obtain fresh quote/review; repair does not automatically change delivery rules.
 
 ## 6. Buyer Quantity Limit Versus Merchant Limit
+
+**Controlled buyer-limit repair case.** During deployed verification the first request selected one keyboard and APPROVED at $39.00, so there was nothing to repair. Use the two-unit test input to exercise quantity correction repeatably.
 
 **Buyer request:** “Buy one Everyday USB Keyboard under $100 total.” In intent review, set **Limit applies to item** to the exact product name **Everyday USB Keyboard** and **Maximum quantity** to **1**.
 
@@ -170,6 +207,8 @@ These quotes are **HOLD**, with no final total, tax, or shipping amount. Unknown
 Say: “The agent cannot prove the final cost or purchase terms. IntentOS pauses instead of guessing.” Never proceed to PayPal on HOLD.
 
 ## 8. Preference Is Different from a Requirement
+
+**API/test-only MODIFY case.** The live preference request selected Studio Monitor 27 and APPROVED at $292.80. It did not select the 1080p monitor and therefore did not exercise MODIFY. The original deployed extractor also incorrectly promoted the preference to a hard requirement; inspect the review and keep optional preferences out of hard specifications.
 
 **Preference buyer request, API/test setup required:**
 
@@ -240,6 +279,8 @@ The Intent Agent should ask for missing/ambiguous boundaries. Inspect its actual
 Say: “Understanding intent includes admitting what the agent does not know.”
 
 ## 11. Payment, Receipt, and Explanation
+
+Live verification of this request stops at approved cart review unless the buyer explicitly authorizes a Sandbox payment. An unpaid shopping run has decision evidence but no payment receipt; an analyst answer must not claim it was captured.
 
 **Buyer request:**
 
