@@ -738,6 +738,20 @@ function App() {
         throw new Error(`Server-side capture failed (${response.status}). ${detail.slice(0, 240)}`)
       }
       setPaymentCapture(await response.json() as PayPalCapture)
+      if (activeIntent?.intentId !== pendingPayPalOrder.intentId) {
+        const intentResponse = await fetch(`/api/intents/${pendingPayPalOrder.intentId}`)
+        if (!intentResponse.ok) {
+          throw new Error('PayPal capture returned, but the purchase could not be reopened. Do not pay again. Sign in and reopen it from Shopping history to view the receipt.')
+        }
+        setActiveIntent(await intentResponse.json() as IntentContract)
+        setShoppingProposal(null)
+        setShoppingReviewId('')
+        setVerifiedReceipts([])
+        setReceiptEvidenceError('')
+      }
+      setShoppingRun({ runId: pendingPayPalOrder.runId, createdAt: pendingPayPalOrder.createdAt })
+      setReceiptQuery('')
+      setReceiptStatus('')
       window.sessionStorage.removeItem('intentos.pendingPayPalOrder')
       setPendingPayPalOrder(null)
       await refreshIntentActivity(pendingPayPalOrder.intentId)
