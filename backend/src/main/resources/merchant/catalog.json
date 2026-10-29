@@ -1,6 +1,6 @@
 {
   "merchantId": "intentos-simulated-store",
-  "version": "1",
+  "version": "2",
   "currency": "USD",
   "products": [
     {
@@ -29,6 +29,167 @@
       "name": "Monthly Device Support", "category": "support",
       "attributes": {}, "price": 19.00, "stock": 100, "maximumQuantity": 1,
       "purchaseType": "SUBSCRIPTION", "billingInterval": "MONTH", "taxable": true
+    },
+    {
+      "productId": "travel-tablet", "variantId": "8gb-128gb",
+      "name": "Travel Tablet 8", "category": "tablet",
+      "attributes": {"ram": "8GB", "storage": "128GB", "screen": "11inch"},
+      "price": 320.00, "stock": 14, "maximumQuantity": 3,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "studio-monitor", "variantId": "27inch-4k",
+      "name": "Studio Monitor 27", "category": "monitor",
+      "attributes": {"screen": "27inch", "resolution": "4K"},
+      "price": 260.00, "stock": 8, "maximumQuantity": 4,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "desk-monitor", "variantId": "24inch-1080p",
+      "name": "Desk Monitor 24", "category": "monitor",
+      "attributes": {"screen": "24inch", "resolution": "1080p"},
+      "price": 140.00, "stock": 16, "maximumQuantity": 6,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "mechanical-keyboard", "variantId": "wireless",
+      "name": "Wireless Mechanical Keyboard", "category": "keyboard",
+      "attributes": {"connection": "wireless", "layout": "US"},
+      "price": 75.00, "stock": 20, "maximumQuantity": 5,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "usb-keyboard", "variantId": "wired",
+      "name": "Everyday USB Keyboard", "category": "keyboard",
+      "attributes": {"connection": "wired", "layout": "US"},
+      "price": 25.00, "stock": 30, "maximumQuantity": 10,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "wireless-mouse", "variantId": "ergonomic",
+      "name": "Ergonomic Wireless Mouse", "category": "mouse",
+      "attributes": {"connection": "wireless"},
+      "price": 35.00, "stock": 25, "maximumQuantity": 10,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "usb-c-dock", "variantId": "8port",
+      "name": "Eight Port USB-C Dock", "category": "accessory",
+      "attributes": {"ports": "8", "connection": "USB-C"},
+      "price": 89.00, "stock": 10, "maximumQuantity": 3,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "device-warranty", "variantId": "2year",
+      "name": "Two Year Device Warranty", "category": "warranty",
+      "attributes": {"coverage": "24month"},
+      "price": 199.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "antivirus-plan", "variantId": "annual",
+      "name": "Annual Antivirus Subscription", "category": "software",
+      "attributes": {"license": "1device"},
+      "price": 79.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": "SUBSCRIPTION", "billingInterval": "YEAR", "taxable": true
+    },
+    {
+      "productId": "cloud-backup", "variantId": "monthly-1tb",
+      "name": "Monthly Cloud Backup 1TB", "category": "software",
+      "attributes": {"storage": "1TB"},
+      "price": 12.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": "SUBSCRIPTION", "billingInterval": "MONTH", "taxable": true
+    },
+    {
+      "productId": "desk-chair", "variantId": "ergonomic",
+      "name": "Ergonomic Desk Chair", "category": "furniture",
+      "attributes": {"adjustable": "yes", "material": "mesh"},
+      "price": 180.00, "stock": 6, "maximumQuantity": 4,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "desk-chair", "variantId": "premium",
+      "name": "Premium Ergonomic Desk Chair", "category": "furniture",
+      "attributes": {"adjustable": "yes", "material": "mesh"},
+      "price": 520.00, "stock": 4, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "notebook-pack", "variantId": "5pack",
+      "name": "Five Pack Office Notebooks", "category": "stationery",
+      "attributes": {"packSize": "5", "paper": "ruled"},
+      "price": 15.00, "stock": 40, "maximumQuantity": 10,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "party-kit", "variantId": "12guests",
+      "name": "Birthday Party Kit for Twelve", "category": "party",
+      "attributes": {"guests": "12", "reusable": "no"},
+      "price": 45.00, "stock": 12, "maximumQuantity": 4,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "party-speaker", "variantId": "portable",
+      "name": "Portable Party Speaker", "category": "audio",
+      "attributes": {"connection": "bluetooth", "battery": "10hour"},
+      "price": 120.00, "stock": 7, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "limited-headphones", "variantId": "noise-cancelling",
+      "name": "Limited Edition Noise Cancelling Headphones", "category": "audio",
+      "attributes": {"connection": "wireless", "noiseCancelling": "yes"},
+      "price": 95.00, "stock": 1, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "sold-out-camera", "variantId": "4k",
+      "name": "Sold Out 4K Webcam", "category": "camera",
+      "attributes": {"resolution": "4K", "connection": "USB-C"},
+      "price": 85.00, "stock": 0, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "unconfirmed-laptop", "variantId": "specs-pending",
+      "name": "Laptop with Unconfirmed Memory", "category": "laptop",
+      "attributes": {"storage": "512GB"},
+      "price": 620.00, "stock": 5, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "tax-pending-printer", "variantId": "wireless",
+      "name": "Wireless Printer with Tax Pending", "category": "printer",
+      "attributes": {"connection": "wireless"},
+      "price": 130.00, "stock": 8, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": null
+    },
+    {
+      "productId": "terms-pending-software", "variantId": "license-pending",
+      "name": "Design Software with Purchase Terms Pending", "category": "software",
+      "attributes": {"license": "pending"},
+      "price": 49.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": null, "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "interval-pending-plan", "variantId": "billing-pending",
+      "name": "Design Subscription with Billing Interval Pending", "category": "software",
+      "attributes": {"license": "1user"},
+      "price": 29.00, "stock": 100, "maximumQuantity": 1,
+      "purchaseType": "SUBSCRIPTION", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "stock-pending-drive", "variantId": "1tb",
+      "name": "Portable SSD with Stock Pending", "category": "storage",
+      "attributes": {"storage": "1TB", "connection": "USB-C"},
+      "price": 70.00, "stock": null, "maximumQuantity": 2,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
+    },
+    {
+      "productId": "price-pending-projector", "variantId": "1080p",
+      "name": "Portable Projector with Price Pending", "category": "projector",
+      "attributes": {"resolution": "1080p"},
+      "price": null, "stock": 3, "maximumQuantity": 1,
+      "purchaseType": "ONE_TIME", "billingInterval": null, "taxable": true
     }
   ],
   "destinationRules": [
