@@ -146,6 +146,10 @@ type ShoppingHistoryPage = {
   incompleteData: boolean
 }
 
+type ShoppingRepairResult = Omit<ShoppingProposalResult, 'run'> & {
+  repair: { explanation: string; status: string }
+}
+
 type ReceiptAnalystResult = { answer: string; receiptIds: string[]; evidenceCount: number; eventIds: string[]; runIds: string[]; revisionIds: string[]; retrievalMode: string; narrationMode: string; toolCalls?: string[] }
 
 type IntentExtraction = {
@@ -624,11 +628,18 @@ function App() {
         method: 'POST', headers: auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {},
       })
       if (!response.ok) throw new Error(response.status === 409 ? 'No further safe repair is available. Review the cart manually.' : 'Repair could not be completed.')
-      const repaired = await response.json() as ShoppingProposalResult
-      if (shoppingProposal.proposal && repaired.proposal) {
+      const repaired = await response.json() as ShoppingRepairResult
+      if (!repaired.revision || !repaired.quote || !repaired.proposal || !repaired.validation) {
+        setRepairComparison(null)
+        setNotice(`${repaired.outcome} ${repaired.repair.explanation}`)
+        setNoticeKind('error')
+        await refreshIntentActivity(activeIntent.intentId)
+        return
+      }
+      if (shoppingProposal.proposal) {
         setRepairComparison({ before: shoppingProposal.proposal, after: repaired.proposal })
       }
-      setShoppingProposal(repaired)
+      setShoppingProposal({ ...repaired, run: shoppingRun })
       setNotice(repaired.validation?.decision === 'APPROVE'
         ? 'The repaired cart passed your intent checks. Review the changes before continuing.'
         : 'The repair was checked, but the cart still needs attention. Payment remains paused.')
