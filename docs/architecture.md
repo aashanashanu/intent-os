@@ -65,23 +65,14 @@ flowchart LR
 ## Backend Modules
 
 | Module | Responsibility | Important routes/data |
-
 | --- | --- | --- |
-
 | `auth` | PayPal Login, session identity, CSRF enforcement | `/api/auth/session`, `/api/auth/paypal`, `/api/auth/logout` |
-
 | `intent` | Intent contracts, extraction, decision history, model interface | `/api/intents`, `/api/intents/extract`, `/api/intents/{id}/events` |
-
 | `merchant` | Configurable simulated catalog, calculated quotes and freshness checks | `/api/intents/{id}/merchant/**` |
-
 | `shopping` | Server-owned runs, immutable quote-backed revisions, repair, review, history and simulator checkout | `/api/intents/{id}/shopping-runs/**`, `/api/shopping-history` |
-
 | `paypal` | Orders/capture, checkout state, webhook verification, AgentReceipts and receipt intelligence | `/api/intents/{id}/orders/{orderId}/capture`, `/api/webhooks/paypal`, `/api/intents/{id}/receipts/**` |
-
 | `validation` | Deterministic policy decisions and total calculation | `/api/intents/{id}/validation` |
-
 | `repair` | Bounded deterministic proposal repair and repair history | `/api/intents/{id}/repair` |
-
 | `health` | Health and non-secret integration readiness | `/api/health`, `/api/integrations/status` |
 
 The model client is advisory. It may extract intent or write evidence-grounded explanations, but cannot approve, price, create/capture PayPal payments, process webhooks, or change receipts.
@@ -335,26 +326,19 @@ Metrics are calculated by Java, not by an LLM. New events are grouped by logical
 ## Persistence
 
 | Index / store | Contents | Write authority |
-
 | --- | --- | --- |
-
 | `intent-v1` | Intent contracts | Intent API |
-
 | `intent-event-v1` | Append-only validation, repair, order, capture and webhook timeline events | Backend event writers |
-
 | `merchant-quote-v1` | Immutable simulator quote snapshots | Merchant quote service |
-
 | `shopping-run-v1`, `shopping-revision-v1`, `shopping-review-v1` | Shopping run, immutable cart revisions, owner-bound final review | Shopping API |
-
 | `paypal-checkout-v1` | Simulator quote-backed proposal, approved amount/currency, capture state and lineage IDs | Checkout and verified webhook handlers |
-
 | `paypal-webhook-v1` | Processed PayPal webhook event IDs | Verified webhook handler |
-
 | `agent-receipt-v1` | One immutable AgentReceipt per captured PayPal order, including `preventedAmount` and `searchText` | Verified completed-capture webhook only |
 
 When Elastic is disabled, the local in-memory adapters support development/tests but do not survive backend restarts.
 
 ## External Setup Still Required
+
 
 - Import the four remote tools from the IntentOS MCP connector, then attach them in the target Kibana space using `INTENTOS_MCP_TOOL_IDS` and `node scripts/provision-elastic-agent-builder.mjs` with a short-lived management key. Raw ES|QL tools must not be attached to this user-facing agent.
 
