@@ -132,7 +132,7 @@ type ShoppingRevision = {
 type ShoppingProposalResult = {
   run: { runId: string; createdAt: string }
   revision: ShoppingRevision | null
-  quote: { quoteId: string; status: string; currency: string; subtotal: number; shipping: number | null; tax: number | null; total: number | null; missingEvidence: string[]; disclosure: string; lines: Array<{ product: { name: string; category: string; price: number; attributes: Record<string, string>; purchaseType: 'ONE_TIME' | 'SUBSCRIPTION' | null }; quantity: number }> } | null
+  quote: { quoteId: string; status: string; currency: string; subtotal: number; shipping: number | null; tax: number | null; total: number | null; missingEvidence: string[]; disclosure: string; lines: Array<{ product: { productId?: string; variantId?: string; maximumQuantity?: number | null; stock?: number | null; name: string; category: string; price: number; attributes: Record<string, string>; purchaseType: 'ONE_TIME' | 'SUBSCRIPTION' | null }; quantity: number }> } | null
   proposal: TransactionProposal | null
   validation: PolicyCheck | null
   outcome: string
@@ -217,7 +217,9 @@ function explainViolation(violation: PolicyCheck['violations'][number]) {
   return explanations[violation.type] ?? `${item}: ${formatEventTitle(violation.type).toLowerCase()}. Your purchase remains paused until this is resolved.`
 }
 
-function explainEvent(event: DecisionEvent) {
+function explainEvent(event: DecisionEvent, quote?: ShoppingProposalResult['quote']) {
+  const findings = merchantHoldFindings(quote ?? null)
+  if (findings.length) return findings.map(finding => finding.message).join(' ')
   if (event.violations.length) return event.violations.map(explainViolation).join(' ')
   if (event.eventType === 'PAYMENT.CAPTURE.COMPLETED') return 'PayPal confirmed the capture through a verified webhook. Your payment evidence is now recorded.'
   if (event.eventType === 'PAYPAL_CAPTURE_RESULT') return 'PayPal returned a capture response. The final receipt still needs a verified payment webhook.'
@@ -226,6 +228,37 @@ function explainEvent(event: DecisionEvent) {
     : 'The repair was checked against your original intent. The cart still needs attention before payment.'
   if (event.decision === 'APPROVE' && event.eventType.includes('VALIDATION')) return 'This proposed cart meets your recorded purchase boundaries. No payment has been authorized by this check.'
   return event.message
+}
+
+function merchantHoldFindings(quote: ShoppingProposalResult['quote']) {
+  if (quote?.status !== 'HOLD') return []
+  return quote.missingEvidence.map(reason => {
+    const [code, productId, variantId] = reason.split(':')
+    const line = quote.lines.find(entry => entry.product.productId === productId && entry.product.variantId === variantId)
+    const product = line?.product.name ?? 'This product'
+    if (code === 'QUANTITY_LIMIT') return {
+      title: 'Seller quantity limit',
+      message: line && line.product.maximumQuantity != null
+        ? `You requested ${line.quantity} units of ${product}, but the seller allows a maximum of ${line.product.maximumQuantity} per order. Choose a quantity within the seller limit before requesting a new quote.`
+        : `${product} exceeds the seller's quantity limit or has no confirmed seller limit. A valid quantity must be confirmed before checkout.`,
+    }
+    if (code === 'INSUFFICIENT_STOCK') return {
+      title: 'Seller availability',
+      message: line && line.product.stock != null
+        ? `You requested ${line.quantity} units of ${product}, but the seller has ${line.product.stock} available.`
+        : `The seller has not confirmed stock for ${product}.`,
+    }
+    const messages: Record<string, string> = {
+      UNKNOWN_TAX_TREATMENT: `The seller has not confirmed the tax treatment for ${product}.`,
+      UNKNOWN_PURCHASE_TERMS: `The seller has not confirmed whether ${product} is a one-time purchase or a subscription.`,
+      UNKNOWN_BILLING_INTERVAL: `The seller has not confirmed the billing interval for ${product}.`,
+      INVALID_PRICE: `The seller has not supplied a valid price for ${product}.`,
+      DESTINATION_SHIPPING_RULE_UNAVAILABLE: 'The seller does not have a shipping rule for the selected destination and method.',
+      UNKNOWN_SHIPPING: 'The seller has not confirmed shipping costs.',
+      UNKNOWN_TAX_RULE: 'The seller has not confirmed the tax rule for this destination.',
+    }
+    return { title: formatEventTitle(code), message: messages[code] ?? `The merchant quote cannot proceed: ${formatEventTitle(code).toLowerCase()}.` }
+  })
 }
 
 function App() {
@@ -864,13 +897,17 @@ function App() {
     ?? shoppingProposal?.revision?.validationDecision
     ?? latestEvent?.decision
     ?? null
-  const latestViolations = shoppingProposal?.validation?.violations
+  const holdFindings = merchantHoldFindings(shoppingProposal?.quote ?? null)
+  const latestViolations = (shoppingProposal?.validation?.violations
     ?? latestEvent?.violations
-    ?? []
+    ?? []).filter(violation => holdFindings.length === 0
+      || !['MISSING_SHIPPING', 'MISSING_TAX'].includes(violation.type))
   const latestRunItems = shoppingProposal?.quote?.lines.map((line) => `${line.quantity} × ${line.product.name}`)
     ?? latestEvent?.proposalSnapshot?.items.map((item) => `${item.quantity} × ${item.name}`)
     ?? []
-  const latestDecisionReason = latestViolations.length > 0
+  const latestDecisionReason = holdFindings.length > 0
+    ? holdFindings.map(finding => finding.message).join(' ')
+    : latestViolations.length > 0
     ? latestViolations.map(explainViolation).join(' ')
     : latestDecision === 'APPROVE'
       ? `The proposed total ${formatMoney(shoppingProposal?.quote?.total ?? latestEvent?.calculatedTotal)} fits your ${formatMoney(activeIntent?.maxAmount)} limit and passed the recorded intent checks. You still control payment.`
@@ -1086,15 +1123,16 @@ function App() {
                 </>}
                 {shoppingProposal && <div className={`shopping-result ${shoppingProposal.validation?.decision === 'APPROVE' ? 'approved' : shoppingProposal.validation?.decision === 'BLOCK' ? 'blocked' : 'review'}`}>
                   <div className="repair-result-heading"><strong>{!shoppingProposal.revision ? 'No matching cart was selected' : shoppingProposal.quote?.status === 'HOLD' ? 'The merchant cannot confirm this purchase' : latestDecision === 'APPROVE' ? 'This cart matches your intent' : latestDecision === 'BLOCK' ? 'IntentOS stopped this purchase' : latestDecision === 'MODIFY' ? 'This cart needs a change' : 'Let\u0027s resolve this before payment'}</strong>{shoppingProposal.revision && <span>Revision {shoppingProposal.revision.revisionNumber}</span>}</div>
-                  <p className="decision-explanation">{!shoppingProposal.revision ? shoppingProposal.outcome : shoppingProposal.quote?.status === 'HOLD' ? 'Price, availability, purchase terms, or delivery evidence is incomplete. This is not a payment approval; repair cannot invent missing merchant facts.' : latestDecisionReason}</p>
+                  <p className="decision-explanation">{!shoppingProposal.revision ? shoppingProposal.outcome : latestDecisionReason}</p>
+                  {holdFindings.length > 0 && <div className="buyer-findings">{holdFindings.map((finding, index) => <article key={index}><ShoppingBag size={17} /><div><strong>{finding.title}</strong><p>{finding.message}</p></div></article>)}</div>}
                   {latestViolations.length > 0 && <div className="buyer-findings">{latestViolations.map((violation, index) => <article key={`${violation.type}-${index}`}><ShieldCheck size={17} /><div><strong>{formatEventTitle(violation.type)}</strong><p>{explainViolation(violation)}</p><small>Your boundary: {violation.expected || 'Recorded intent policy'}{violation.actual ? ` · Proposed: ${violation.actual}` : ''}</small></div></article>)}</div>}
                   {repairComparison && <div className="repair-comparison"><div><RefreshCw size={16} /><strong>What changed in the repair</strong></div><p>{formatMoney(repairComparison.before.total)} before → {formatMoney(repairComparison.after.total)} after</p>{repairComparison.before.items.filter(item => !repairComparison.after.items.some(next => next.name === item.name)).map(item => <p key={item.name}>Removed {item.name} from the proposed cart.</p>)}<p>{latestDecision === 'APPROVE' ? 'The new cart passed your intent checks. No payment has been made.' : 'The revised cart still needs attention. Payment remains paused.'}</p></div>}
                   <details className="technical-evidence"><summary>Agent result and recorded IDs</summary><p>{shoppingProposal.outcome}</p><small>{shoppingProposal.revision?.revisionId ?? shoppingProposal.run.runId}</small></details>
                   {shoppingProposal.quote && <>
                     <p className="simulator-disclosure">{shoppingProposal.quote.disclosure}</p>
                     {shoppingProposal.proposal && <div className="repair-items">{shoppingProposal.proposal.items.map((item) => <div key={`${item.name}-${item.category}`}><span>{item.quantity} × {item.name}</span><strong>{shoppingProposal.quote?.currency} {(item.unitPrice * item.quantity).toFixed(2)}</strong></div>)}
-                      <div><span>Shipping</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.shipping?.toFixed(2) ?? 'Unknown'}</strong></div>
-                      <div><span>Tax</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.tax?.toFixed(2) ?? 'Unknown'}</strong></div>
+                      <div><span>Shipping</span><strong>{shoppingProposal.quote.shipping == null ? 'Not finalized while on hold' : formatMoney(shoppingProposal.quote.shipping, shoppingProposal.quote.currency)}</strong></div>
+                      <div><span>Tax</span><strong>{shoppingProposal.quote.tax == null ? 'Not finalized while on hold' : formatMoney(shoppingProposal.quote.tax, shoppingProposal.quote.currency)}</strong></div>
                       <div className="repair-total"><span>Quoted total</span><strong>{shoppingProposal.quote.currency} {shoppingProposal.quote.total?.toFixed(2) ?? 'HOLD'}</strong></div>
                     </div>}
                     {shoppingProposal.quote.missingEvidence.length > 0 && <p>Missing evidence: {shoppingProposal.quote.missingEvidence.join(', ')}</p>}
@@ -1118,7 +1156,7 @@ function App() {
                   <div><h2>How your agents reached this decision</h2><p>The recorded checks, findings, and repairs for this request</p></div>
                   <button className="text-button" onClick={explainDecision} disabled={!activeIntent || activityEvents.length === 0 || explanationLoading}><Sparkles size={14} />{explanationLoading ? 'Explaining…' : 'Explain decision'}</button>
                 </div>
-                {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No decisions recorded yet</strong><span>Your purchase checks will appear as the agent works.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{formatEventTitle(event.eventType)}</strong><p>{explainEvent(event)}</p><span>{formatMoney(event.calculatedTotal, activeIntent?.currency)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><details><summary>Recorded evidence</summary><small>{event.message} · {event.eventId}</small></details></div></article>)}</div>}
+                {activityEvents.length === 0 ? <div className="empty-activity"><div className="empty-glyph"><Activity size={20} /></div><strong>No decisions recorded yet</strong><span>Your purchase checks will appear as the agent works.</span></div> : <div className="event-list">{activityEvents.map((event) => <article className="event-row" key={event.eventId}><div className={`event-indicator ${event.decision.toLowerCase()}`}><ShieldCheck size={14} /></div><div className="event-copy"><strong>{formatEventTitle(event.eventType)}</strong><p>{explainEvent(event, event.eventType === 'SHOPPING_VALIDATION' && event.revisionId === shoppingProposal?.revision?.revisionId ? shoppingProposal?.quote : null)}</p><span>{formatMoney(event.calculatedTotal, activeIntent?.currency)} · {new Date(event.occurredAt).toLocaleTimeString()}</span><details><summary>Recorded evidence</summary><small>{event.message} · {event.eventId}</small></details></div></article>)}</div>}
                 {modelExplanation && <p className="model-explanation" role="status"><strong>Evidence-based explanation</strong>{modelExplanation}</p>}
               </section>
 
@@ -1234,7 +1272,7 @@ function App() {
                 <div className={`agent-worker ${agentOperation === 'shopping' ? 'worker-active' : ''}`}><ShoppingBag size={19} /><div><strong>Shopping Agent</strong><span>{agentOperation === 'shopping' ? 'Selecting from catalog candidates' : shoppingProposal ? 'Cart proposed for your review' : 'Ready to find your purchase'}</span></div></div>
                 <div className={`agent-worker ${agentOperation === 'repair' ? 'worker-active' : ''}`}><ShieldCheck size={19} /><div><strong>IntentOS protection</strong><span>{agentOperation === 'repair' ? 'Repairing and revalidating' : latestDecision === 'APPROVE' ? 'Proposed cart passed the checks' : latestDecision ? 'Checkout paused for findings' : 'Checks every cart before payment'}</span></div></div>
                 <div className="agent-worker"><ReceiptText size={19} /><div><strong>Receipt Analyst</strong><span>{latestRunReceipt ? 'Verified receipt ready to explain' : paymentCapture ? 'Waiting for verified payment evidence' : 'Waiting for a completed purchase'}</span></div></div>
-                {latestEvent && <div className="latest-agent-message"><span>Latest recorded decision</span><p>{explainEvent(latestEvent)}</p><time>{new Date(latestEvent.occurredAt).toLocaleTimeString()}</time></div>}
+                {latestEvent && <div className="latest-agent-message"><span>Latest recorded decision</span><p>{explainEvent(latestEvent, latestEvent.eventType === 'SHOPPING_VALIDATION' && latestEvent.revisionId === shoppingProposal?.revision?.revisionId ? shoppingProposal?.quote : null)}</p><time>{new Date(latestEvent.occurredAt).toLocaleTimeString()}</time></div>}
               </section>
               <section className="guardrail-panel">
                 <div className="panel-heading"><div><span className="panel-kicker">POLICY STATUS</span><h2>Guardrails</h2></div><ShieldCheck size={19} /></div>
