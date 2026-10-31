@@ -46,7 +46,15 @@ public class ShoppingRunController {
         return runs.propose(intent, runId, body);
     }
 
-    @GetMapping("/{runId}/revisions")
+        @PostMapping("/{runId}/propose-cart")
+        public ShoppingRunService.ProposalResult proposeCart(@PathVariable String intentId, @PathVariable String runId,
+                        @RequestBody ShoppingRunService.BuyerCartRequest body, HttpServletRequest request) {
+                var intent = access.findAccessible(intentId, request)
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Intent not found"));
+                return runs.proposeCart(intent, runId, body);
+        }
+
+        @GetMapping("/{runId}/revisions")
     public List<ShoppingRevision> revisions(@PathVariable String intentId, @PathVariable String runId,
             HttpServletRequest request) {
         access.findAccessible(intentId, request)

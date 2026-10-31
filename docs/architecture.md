@@ -86,6 +86,7 @@ The model client is advisory. It may extract intent or write evidence-grounded e
 3. **Shopping run:** The user enters country, region, and shipping method. `POST /api/intents/{id}/shopping-runs/{runId}/propose` supplies up to 50 simulator candidates to Nova Lite, validates the returned candidate IDs, creates a computed quote, validates it in Java, and persists a revision.
 
 4. **Repair and review:** A non-approved proposal may use deterministic repair within the same run. A repaired cart receives a new quote/revision. Only an `APPROVE` revision can be reviewed, and the review binds to its exact revision and quote.
+    The optional buyer-selected catalog evaluator starts a new run and posts product IDs/quantities/destination to `/api/intents/{id}/shopping-runs/{runId}/propose-cart`. The backend rehydrates prices and terms from the catalog, records `BUYER_CART` provenance, and applies the same policy, quote, repair, and payment checks. It does not claim AI selection or accept client-supplied approval or pricing.
 
 5. **Payment:** The backend reconstructs order facts from the persisted revision/quote, checks review and current policy, then creates a PayPal Sandbox order. The buyer follows the PayPal hosted approval URL and returns to the application, then chooses **Check approval and capture**. The server verifies buyer approval; URL parameters are not payment evidence. Immediately before capture, the backend rechecks expiry, current quote and policy; the browser never captures funds directly.
 

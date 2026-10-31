@@ -196,6 +196,64 @@ class SimulatedMerchantApiTest {
                 .andExpect(jsonPath("$.items[0].intentId").value(ownedIntent));
     }
 
+    @Test
+    void buyerSelectedCatalogCartBlocksExtrasAndRepairsWithinTheSameRun() throws Exception {
+        MockHttpSession owner = session("buyer-cart-owner");
+        var intentResponse = mvc.perform(post("/api/intents").session(owner)
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json")
+                .content("""
+                        {"naturalLanguageRequest":"Buy only a laptop under $1000, no subscriptions",
+                         "goal":"Laptop","maxAmount":1000,"currency":"USD","allowedCategories":["laptop"]}
+                        """))
+                .andExpect(status().isCreated()).andReturn();
+        String intentId = mapper.readTree(intentResponse.getResponse().getContentAsString()).path("intentId").asText();
+        var runResponse = mvc.perform(post("/api/intents/{id}/shopping-runs", intentId).session(owner)
+                .header("X-CSRF-Token", "merchant-csrf")).andExpect(status().isCreated()).andReturn();
+        String runId = mapper.readTree(runResponse.getResponse().getContentAsString()).path("runId").asText();
+        String endpoint = "/api/intents/{id}/shopping-runs/{runId}/propose-cart";
+        String body = """
+                {"items":[{"productId":"portable-computer","variantId":"16gb-512gb","quantity":1},
+                          {"productId":"device-warranty","variantId":"2year","quantity":1},
+                          {"productId":"antivirus-plan","variantId":"annual","quantity":1}],
+                 "country":"US","region":"CA","shippingMethod":"standard"}
+                """;
+        mvc.perform(post(endpoint, intentId, runId).session(owner).contentType("application/json").content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(endpoint, intentId, runId).session(session("other-cart-owner"))
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json").content(body))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(endpoint, intentId, runId).session(owner)
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json")
+                .content(body.replace("portable-computer", "invented-product")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(endpoint, intentId, runId).session(owner)
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json")
+                .content(body.replace("\"quantity\":1", "\"quantity\":0")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(endpoint, intentId, runId).session(owner)
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json")
+                .content(body.replace("\"productId\":\"device-warranty\",\"variantId\":\"2year\"",
+                        "\"productId\":\"portable-computer\",\"variantId\":\"16gb-512gb\"")))
+                .andExpect(status().isBadRequest());
+        var initial = mvc.perform(post(endpoint, intentId, runId).session(owner)
+                .header("X-CSRF-Token", "merchant-csrf").contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.validation.decision").value("BLOCK"))
+                .andExpect(jsonPath("$.quote.total").value(1154.64))
+                .andExpect(jsonPath("$.revision.modelTask").value("BUYER_CART"))
+                .andExpect(jsonPath("$.revision.modelId").doesNotExist()).andReturn();
+        String revisionId = mapper.readTree(initial.getResponse().getContentAsString()).path("revision").path("revisionId").asText();
+        mvc.perform(post("/api/intents/{id}/shopping-runs/{runId}/revisions/{revisionId}/review", intentId, runId, revisionId)
+                .session(owner).header("X-CSRF-Token", "merchant-csrf")).andExpect(status().isConflict());
+        mvc.perform(post("/api/intents/{id}/shopping-runs/{runId}/revisions/{revisionId}/repair", intentId, runId, revisionId)
+                .session(owner).header("X-CSRF-Token", "merchant-csrf"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.validation.decision").value("APPROVE"))
+                .andExpect(jsonPath("$.quote.total").value(854.4))
+                .andExpect(jsonPath("$.revision.parentRevisionId").value(revisionId))
+                .andExpect(jsonPath("$.revision.items.length()").value(1));
+    }
+
     private static String revisionBody(String quoteId, int quantity) {
         return """
                 {"quoteId":"%s","items":[{"productId":"portable-computer",

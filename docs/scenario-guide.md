@@ -9,7 +9,7 @@ This guide contains both buyer journeys and controlled policy tests. They are **
 | Complete an ordinary purchase | 1, 9, 11 | A matching cart passes after the extracted boundaries are reviewed. |
 | Show expensive or infeasible requirements | 3, 5, conflicting variant of 10 | BLOCK for an evaluated violating cart, or no selection if the agent declines it. |
 | Show missing merchant evidence | 7, merchant-limit variant of 6 | HOLD if selected, or no selection; neither permits payment. |
-| Guarantee extras removal or quantity repair | Controlled cases in 2 and 6 | Run the automated tests; live requests explicitly forbid these mistakes and often produce clean carts. |
+| Show extras removal or quantity repair from the UI | Buyer-selected cart paths in 2 and 6 | Choose real catalog items in **Evaluate a cart yourself**, then run policy validation and repair. Selection is explicitly yours, not a claimed AI mistake. |
 | Guarantee bad specifications or MODIFY | Controlled cases in 4 and 8 | Run the automated tests with the stated contracts/candidates. A live agent may select the correct product. |
 
 ### Review the Extracted Boundaries
@@ -56,7 +56,7 @@ All products and shipping are simulated. PayPal Sandbox executes a test payment 
 
 The expected outcomes below apply **when the listed items are proposed and the stated contract is confirmed**. Repeatable quote/policy scenarios use the real bundled catalog in [../backend/src/test/java/com/intentos/merchant/SeedCatalogScenarioTest.java](../backend/src/test/java/com/intentos/merchant/SeedCatalogScenarioTest.java). Shopping API tests exercise candidate selection and same-run repair with an explicitly mocked model.
 
-For a guaranteed bad-agent walkthrough, show deterministic tests and identify them as tests. The UI has no manual candidate picker or seeded bad-cart mode. Do not secretly force model selection, weaken policy, or fabricate payment events to produce a recording.
+For a repeatable repair walkthrough, use the disclosed **Evaluate a cart yourself** catalog selector. It starts a new buyer-selected run with the same saved intent, server-priced quote, deterministic validation, and repair pipeline. It does not inject items into the AI's existing cart or claim that Nova selected them. There is no seeded bad-agent mode. Do not secretly force model selection, weaken policy, or fabricate payment events.
 
 ## The Buyer Journey
 
@@ -93,7 +93,7 @@ Say: “The selected laptop meets your recorded specifications and the full cost
 
 ## 2. Block Extras, Repair, and Recheck
 
-**Controlled repair case, not a guaranteed live bad-cart request.** During deployed verification the request below selected only the laptop and correctly APPROVED. Use that result to show prevention through compliant selection; use the named automated test for reproducible extras removal. There is no live UI button to inject forbidden extras into the model's cart.
+**Repeatable UI repair using a buyer-selected catalog cart.** The normal agent flow may correctly choose only the laptop. The optional evaluator lets you compare another cart against the unchanged saved intent and run real repair. Label the selection honestly; this is not a scripted AI failure.
 
 **Buyer request:**
 
@@ -101,7 +101,22 @@ Say: “The selected laptop meets your recorded specifications and the full cost
 Buy one laptop for under $1,000 total, including tax and shipping. Buy only the laptop. Do not include a warranty, support plan, antivirus, accessories, subscriptions, or recurring payments. I have no additional hardware specification requirements.
 ```
 
-Use a laptop-only intent with $1,000 maximum, allowed category `laptop`, no required attributes for this isolated repair example, and recurring payments/subscriptions disabled. If the proposed cart contains:
+### Exact UI Steps
+
+1. Enter the buyer request above and choose **United States / California / Standard**.
+2. Click **Start shopping**. Confirm maximum **1000**, allowed category **laptop**, no required product specifications, and disabled recurring payments/subscriptions/add-ons. Do not use a RAM requirement for this isolated extras-removal case.
+3. Click **Confirm intent & find my cart**. The Shopping Agent may return an approved laptop; no payment is needed.
+4. Under **Your proposed purchase**, expand **Evaluate a cart yourself** and click **Load catalog products**.
+5. Select **Portable Computer 16** with quantity **1**.
+6. Click **Add catalog item**, select **Two Year Device Warranty**, quantity **1**.
+7. Click **Add catalog item** again, select **Annual Antivirus Subscription**, quantity **1**.
+8. Click **Evaluate selected cart**. This creates a new run labeled as selected by you. Expect **BLOCK** at **$1,154.64**, including forbidden-category, recurring/subscription, and budget findings. The blocked cart cannot be reviewed for checkout.
+9. Click **Ask IntentOS to repair this cart**. Expect a new child revision in the same buyer-selected run, containing only Portable Computer 16, with a fresh quote at **$854.40** and **APPROVE**.
+10. Inspect **What changed in the repair**: warranty and antivirus removed, **$300.24** reduction including recalculated tax. You may review the repaired cart; a PayPal order/capture remains a separate buyer action.
+
+The feature requires the updated frontend and backend `/propose-cart` endpoint to be deployed together. Old clients/backends do not have this path. Completing this walkthrough creates shopping records, not payment evidence.
+
+The buyer-selected initial cart contains:
 
 | Candidate | Price |
 | --- | ---: |
@@ -114,7 +129,7 @@ Use a laptop-only intent with $1,000 maximum, allowed category `laptop`, no requ
 
 Expected: **BLOCK** for budget, forbidden categories, recurring payment, and subscription. Safe repair removes warranty and antivirus; the fresh quote is **$854.40** and passes. The reduction is **$300.24**, including recalculated tax, not a separate refund or charge.
 
-Say: “The cart included coverage and an annual subscription outside your laptop-only request. IntentOS stopped payment, removed the disallowed extras, recalculated the quote, and checked again.”
+Say: “I selected this comparison cart from the catalog. It conflicts with my saved laptop-only intent. IntentOS stopped payment, removed the excluded extras, recalculated the quote, and checked the new revision again.”
 
 The live agent may never add these extras; show that honestly. The existing repeatable API-test variant is laptop plus `support-plan:monthly`: **$874.92** before repair, **$854.40** after re-quote.
 
@@ -156,11 +171,13 @@ Say: “The product price fits, but the complete purchase does not. IntentOS che
 
 ## 6. Buyer Quantity Limit Versus Merchant Limit
 
-**Controlled buyer-limit repair case.** During deployed verification the first request selected one keyboard and APPROVED at $39.00, so there was nothing to repair. Use the two-unit test input to exercise quantity correction repeatably.
+**Buyer-limit repair from the UI.** The agent normally selects one keyboard, so there is nothing to repair in that first cart. To show correction, use the optional buyer-selected evaluator after saving the one-keyboard intent.
 
 **Buyer request:** “Buy one Everyday USB Keyboard under $100 total.” In intent review, set **Limit applies to item** to the exact product name **Everyday USB Keyboard** and **Maximum quantity** to **1**.
 
 If two `usb-keyboard:wired` units are proposed, the merchant allows it but the buyer does not: **BLOCK / QUANTITY_EXCEEDED**. Safe repair clamps to one; California Standard total changes from **$66.00** to **$39.00** after re-quote.
+
+UI steps: save the request with the exact product-name cap above, expand **Evaluate a cart yourself**, load the catalog, select **Everyday USB Keyboard**, enter quantity **2**, and click **Evaluate selected cart**. Click **Ask IntentOS to repair this cart** after the BLOCK. The child revision should contain quantity **1** at $39.00. This is a buyer-selected comparison, not a claim that the agent ignored your limit.
 
 Separately, six `mechanical-keyboard:wireless` units exceed the merchant maximum of five: **HOLD / QUANTITY_LIMIT**. Policy repair cannot override seller limits or create stock.
 

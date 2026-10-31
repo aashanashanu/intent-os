@@ -72,4 +72,8 @@ These tests deliberately supply candidate/proposal combinations to prove BLOCK, 
 
 ## Deployment Boundary
 
+### Buyer-Selected Repair Path
+
+A later addition provides a disclosed UI catalog selector and owner-scoped `/propose-cart` endpoint. It reuses the same quote, policy, repair, and exact-review pipeline while recording `BUYER_CART` provenance and no AI model ID. It is not a seeded or forced model decision. API tests verify laptop/warranty/antivirus BLOCK at $1,154.64, denial of blocked-cart review, and a repaired child revision with one laptop at $854.40. Unknown/duplicate candidates, invalid quantities, missing CSRF, and foreign-owner access are rejected. These are local automated checks until the new client and endpoint are deployed together.
+
 The initial matrix and corrected-contract shopping calls ran against the deployed backend. Revised extraction instructions were tested directly against Bedrock, and parser/UI changes were verified locally. This report does not claim that those source changes are already deployed. Re-run the affected buyer requests after deployment; model output remains variable and must be reviewed before confirmation. Payment capture and paid-receipt acceptance still require explicit buyer approval.

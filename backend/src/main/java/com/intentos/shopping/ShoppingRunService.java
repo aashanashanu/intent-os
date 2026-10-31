@@ -118,6 +118,27 @@ public class ShoppingRunService {
     }
 
             public ProposalResult propose(IntentContract intent, String runId, DestinationRequest destination) {
+                return propose(intent, runId, destination, null);
+            }
+
+    public ProposalResult proposeCart(IntentContract intent, String runId, BuyerCartRequest request) {
+        if (request == null || request.items() == null || request.items().isEmpty() || request.items().size() > 50) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select between 1 and 50 catalog items");
+        }
+        var selectedIds = new java.util.HashSet<String>();
+        for (RevisionItem item : request.items()) {
+            if (item == null || blank(item.productId()) || blank(item.variantId())
+                    || item.quantity() < 1 || item.quantity() > 50
+                    || !selectedIds.add(item.productId() + ":" + item.variantId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or duplicate buyer cart item");
+            }
+        }
+        return propose(intent, runId, new DestinationRequest(request.country(), request.region(),
+                request.shippingMethod()), request);
+    }
+
+    private ProposalResult propose(IntentContract intent, String runId, DestinationRequest destination,
+            BuyerCartRequest buyerCart) {
             ShoppingRun run = store.findRun(runId)
                 .filter(existing -> existing.intentId().equals(intent.intentId()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Shopping run not found"));
@@ -135,9 +156,12 @@ public class ShoppingRunService {
             }
             List<ShoppingCandidate> candidates = catalog.products().stream().limit(50)
                 .map(product -> candidate(product)).toList();
-            ShoppingSelection selection = languageModel.selectShopping(intent, candidates)
+            ShoppingSelection selection = buyerCart == null ? languageModel.selectShopping(intent, candidates)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Autonomous shopping is unavailable; no proposal was created"));
+                    "Autonomous shopping is unavailable; no proposal was created"))
+                : new ShoppingSelection(buyerCart.items().stream().map(item ->
+                    new ShoppingSelection.SelectedCandidate(item.productId() + ":" + item.variantId(), item.quantity())).toList(),
+                    "Buyer-selected catalog cart; evaluated by deterministic policy, not selected by an AI model.", null);
             if (selection.items().isEmpty()) {
                 return new ProposalResult(run, null, null, null, null,
                     "No eligible merchant candidate was selected: " + selection.rationale());
@@ -150,7 +174,8 @@ public class ShoppingRunService {
             for (ShoppingSelection.SelectedCandidate selected : selection.items()) {
                 ShoppingCandidate candidate = byId.get(selected.candidateId());
                 if (candidate == null || selected.quantity() > 50) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Shopping selection referenced an unknown candidate");
+                throw new ResponseStatusException(buyerCart == null ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST,
+                    "Shopping selection referenced an unknown candidate");
                 }
                 lines.add(new Line(candidate.productId(), candidate.variantId(), selected.quantity()));
                 revisionItems.add(new RevisionItem(candidate.productId(), candidate.variantId(), selected.quantity()));
@@ -172,7 +197,7 @@ public class ShoppingRunService {
             }
             RevisionRequest revisionRequest = new RevisionRequest(quote.quoteId(), revisionItems,
                 selection.items().stream().map(ShoppingSelection.SelectedCandidate::candidateId).toList(),
-                selection.rationale(), selection.modelId(), IntentModelTask.SHOPPING.name());
+                selection.rationale(), selection.modelId(), buyerCart == null ? IntentModelTask.SHOPPING.name() : "BUYER_CART");
             ShoppingRevision revision = appendRevision(intent.intentId(), runId, revisionRequest, policyResult, null, 0);
             proposal = new TransactionProposal(revision.proposalId(), proposal.intentId(), proposal.currency(),
                 proposal.items(), proposal.shipping(), proposal.tax(), proposal.total());
@@ -307,6 +332,8 @@ public class ShoppingRunService {
     public record RevisionItem(String productId, String variantId, int quantity) {}
 
     public record DestinationRequest(String country, String region, String shippingMethod) {}
+
+    public record BuyerCartRequest(List<RevisionItem> items, String country, String region, String shippingMethod) {}
 
     public record ProposalResult(ShoppingRun run, ShoppingRevision revision, MerchantQuote quote,
             TransactionProposal proposal, ValidationResult validation, String outcome) {}

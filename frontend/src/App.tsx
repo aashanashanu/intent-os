@@ -127,7 +127,11 @@ type ShoppingRevision = {
   validationDecision: string | null
   violationTypes: string[]
   repairAttempts: number
+  modelTask?: string | null
+  selectionRationale?: string | null
 }
+
+type CatalogProduct = { productId: string; variantId: string; name: string; price: number | null }
 
 type ShoppingProposalResult = {
   run: { runId: string; createdAt: string }
@@ -293,6 +297,8 @@ function App() {
   const [shoppingReviewId, setShoppingReviewId] = useState('')
   const [shoppingBusy, setShoppingBusy] = useState(false)
   const [repairComparison, setRepairComparison] = useState<{ before: TransactionProposal; after: TransactionProposal } | null>(null)
+  const [cartProducts, setCartProducts] = useState<CatalogProduct[]>([])
+  const [buyerCartLines, setBuyerCartLines] = useState<Array<{ candidateId: string; quantity: number }>>([{ candidateId: '', quantity: 1 }])
   const [shoppingCountry, setShoppingCountry] = useState('US')
   const [shoppingRegion, setShoppingRegion] = useState('CA')
   const [shoppingShipping, setShoppingShipping] = useState('standard')
@@ -644,6 +650,63 @@ function App() {
   async function proposeShopping() {
     if (!activeIntent || !shoppingRun) return
     await runShoppingProposal(activeIntent, shoppingRun)
+  }
+
+  async function loadCartProducts() {
+    if (!activeIntent) return
+    setShoppingBusy(true)
+    try {
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/merchant/products`)
+      if (!response.ok) throw new Error('The catalog could not be loaded for this purchase.')
+      const catalog = await response.json() as { products: CatalogProduct[] }
+      setCartProducts(catalog.products)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Catalog could not be loaded.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+    }
+  }
+
+  async function evaluateBuyerCart() {
+    if (!activeIntent || !buyerCartLines.length || buyerCartLines.some(line => !line.candidateId)
+      || pendingPayPalOrder || paymentCapture || latestRunReceipt) return
+    setShoppingBusy(true)
+    setAgentOperation('shopping')
+    setShoppingReviewId('')
+    setRepairComparison(null)
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(auth.csrfToken ? { 'X-CSRF-Token': auth.csrfToken } : {}) }
+      const runResponse = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs`, { method: 'POST', headers })
+      if (!runResponse.ok) throw new Error('A new run could not be created for your selected cart.')
+      const run = await runResponse.json() as ShoppingProposalResult['run']
+      setShoppingRun(run)
+      setShoppingProposal(null)
+      const items = buyerCartLines.map(line => {
+        const product = cartProducts.find(product => `${product.productId}:${product.variantId}` === line.candidateId)
+        if (!product) throw new Error('Select products from the current catalog.')
+        return { productId: product.productId, variantId: product.variantId, quantity: line.quantity }
+      })
+      const response = await fetch(`/api/intents/${activeIntent.intentId}/shopping-runs/${run.runId}/propose-cart`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ items, country: shoppingCountry, region: shoppingRegion, shippingMethod: shoppingShipping }),
+      })
+      if (!response.ok) throw new Error(`Your cart could not be evaluated (${response.status}). Select unique catalog items and valid quantities.`)
+      const result = await response.json() as ShoppingProposalResult
+      setShoppingProposal(result)
+      setNotice(result.validation?.decision === 'APPROVE'
+        ? 'Your selected cart passed the intent checks. Review it before any payment.'
+        : 'Your selected cart was checked against the same intent. Review the findings before requesting repair.')
+      setNoticeKind('success')
+      await refreshIntentActivity(activeIntent.intentId)
+      void loadShoppingHistory().catch(() => undefined)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Cart evaluation failed.')
+      setNoticeKind('error')
+    } finally {
+      setShoppingBusy(false)
+      setAgentOperation('idle')
+    }
   }
 
   async function runShoppingProposal(intent: IntentContract, run: ShoppingProposalResult['run']) {
@@ -1108,12 +1171,29 @@ function App() {
 
               <section className="activity-section shopping-section" id="shopping-run">
                 <div className="section-heading activity-heading">
-                  <div><h2>{shoppingProposal ? 'Your proposed purchase' : 'Your cart'}</h2><p>{shoppingBusy ? 'Shopping Agent is working on your cart' : 'Selected by the Shopping Agent. Checked against your intent.'}</p></div>
+                  <div><h2>{shoppingProposal ? 'Your proposed purchase' : 'Your cart'}</h2><p>{shoppingBusy ? 'Your cart is being prepared and checked' : shoppingProposal?.revision?.modelTask === 'BUYER_CART' ? 'Selected by you from the catalog. Checked against your intent.' : shoppingProposal?.revision?.modelTask === 'REPAIR' ? 'Repaired by IntentOS and checked again against your intent.' : 'Selected by the Shopping Agent. Checked against your intent.'}</p></div>
                   <button className="text-button" onClick={startShoppingRun} disabled={!activeIntent || busy || !!pendingPayPalOrder}><Plus size={14} />New run</button>
                 </div>
                 <div className="simulator-disclosure">Simulated merchant catalog and quotes. Real PayPal Sandbox payment lifecycle. No physical order or retailer settlement.</div>
                 {!activeIntent && <div className="cart-waiting"><ShoppingBag size={26} /><div><strong>Your cart is waiting for your goal</strong><p>Nothing selected. Nothing charged.</p></div></div>}
                 {activeIntent && <>
+                  <details className="buyer-cart-builder">
+                    <summary>Evaluate a cart yourself</summary>
+                    <p>Choose catalog items to check against your saved intent. This creates a new buyer-selected run, not an AI selection. It does not authorize payment.</p>
+                    <button className="secondary-button" type="button" onClick={loadCartProducts} disabled={busy || !!pendingPayPalOrder}><ShoppingBag size={15} />Load catalog products</button>
+                    {cartProducts.length > 0 && <>
+                      {buyerCartLines.map((line, index) => <div className="buyer-cart-line" key={index}>
+                        <label className="form-field"><span>Product {index + 1}</span><select value={line.candidateId} disabled={busy} onChange={(event) => setBuyerCartLines(current => current.map((item, position) => position === index ? { ...item, candidateId: event.target.value } : item))}>
+                          <option value="">Select a catalog product</option>
+                          {cartProducts.map(product => <option key={`${product.productId}:${product.variantId}`} value={`${product.productId}:${product.variantId}`} disabled={buyerCartLines.some((other, position) => position !== index && other.candidateId === `${product.productId}:${product.variantId}`)}>{product.name} - {formatMoney(product.price)}</option>)}
+                        </select></label>
+                        <label className="form-field"><span>Quantity {index + 1}</span><input type="number" min="1" max="50" step="1" value={line.quantity} disabled={busy} onChange={(event) => setBuyerCartLines(current => current.map((item, position) => position === index ? { ...item, quantity: Number(event.target.value) } : item))} /></label>
+                        <button className="icon-button" type="button" title="Remove cart item" aria-label={`Remove cart item ${index + 1}`} disabled={busy || buyerCartLines.length === 1} onClick={() => setBuyerCartLines(current => current.filter((_, position) => position !== index))}><X size={16} /></button>
+                      </div>)}
+                      <div className="composer-footer"><button className="secondary-button" type="button" onClick={() => setBuyerCartLines(current => [...current, { candidateId: '', quantity: 1 }])} disabled={busy || buyerCartLines.length >= Math.min(50, cartProducts.length)}><Plus size={15} />Add catalog item</button>
+                        <button className="primary-button" type="button" onClick={evaluateBuyerCart} disabled={busy || !!pendingPayPalOrder || !!paymentCapture || !!latestRunReceipt || buyerCartLines.some(line => !line.candidateId || !Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 50)}><ShieldCheck size={15} />Evaluate selected cart</button></div>
+                    </>}
+                  </details>
                   <div className="shopping-run-bar">
                     <span>{shoppingRun ? `Started ${new Date(shoppingRun.createdAt).toLocaleTimeString()} · ${shoppingRegion === 'CA' ? 'California' : 'New York'} · ${shoppingShipping}` : 'No active run'}</span>
                     <button className="primary-button" onClick={proposeShopping} disabled={!shoppingRun || !shoppingCountry.trim() || !shoppingRegion.trim() || !shoppingShipping.trim() || busy || !!pendingPayPalOrder || !!paymentCapture || !!latestRunReceipt}>
